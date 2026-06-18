@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { getStrip, logDownload, type StripRecord } from "@/lib/booth-storage";
+import { getCloudPhoto } from "@/lib/server-storage";
 import { Download } from "lucide-react";
 
 export const Route = createFileRoute("/photo/$id")({
@@ -18,7 +19,31 @@ function PhotoPage() {
   const [rec, setRec] = useState<StripRecord | null | undefined>(undefined);
 
   useEffect(() => {
-    setRec(getStrip(id) ?? null);
+    // 1. Try local storage first (instant if running on the kiosk device)
+    const local = getStrip(id);
+    if (local) {
+      setRec(local);
+      return;
+    }
+
+    // 2. Fall back to Vercel Blob cloud storage
+    getCloudPhoto(id)
+      .then((res) => {
+        if (res && res.success && res.data) {
+          setRec({
+            id,
+            dataUrl: res.data.url,
+            eventName: res.data.eventName,
+            createdAt: res.data.createdAt,
+          });
+        } else {
+          setRec(null);
+        }
+      })
+      .catch((err) => {
+        console.error("Failed to fetch cloud photo:", err);
+        setRec(null);
+      });
   }, [id]);
 
   const download = () => {

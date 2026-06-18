@@ -9,6 +9,7 @@ import {
   getSettings, saveStrip, uid, logPrint, logDownload, type Settings,
 } from "@/lib/booth-storage";
 import { buildStrip, captureFromVideo } from "@/lib/strip";
+import { uploadPhoto } from "@/lib/server-storage";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -56,8 +57,26 @@ function Kiosk() {
     const dataUrl = await buildStrip(imgs, getSettings());
     const id = uid();
     const s = getSettings();
+    
+    // Save locally first (ensures print/download work immediately offline)
     saveStrip({ id, dataUrl, createdAt: Date.now(), eventName: s.eventName });
     setStrip({ id, dataUrl });
+    
+    // Attempt Vercel Blob cloud upload in the background
+    try {
+      uploadPhoto({ id, dataUrl, eventName: s.eventName }).then((res) => {
+        if (res && res.success) {
+          console.log("Photo strip uploaded to cloud:", res.url);
+        } else {
+          console.warn("Cloud upload failed:", res?.error);
+        }
+      }).catch((err) => {
+        console.warn("Failed background cloud upload promise:", err);
+      });
+    } catch (uploadErr) {
+      console.warn("Failed background cloud upload:", uploadErr);
+    }
+    
     setScreen("preview");
   }, []);
 
