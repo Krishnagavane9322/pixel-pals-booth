@@ -158,6 +158,16 @@ export function AdminPanel({ open, onClose }: { open: boolean; onClose: () => vo
                 <input type="file" accept="image/*" onChange={handleFile("logoDataUrl")} className="text-sm" />
                 {s.logoDataUrl && <img src={s.logoDataUrl} alt="logo" className="h-16 mt-2 rounded bg-white p-1" />}
               </Field>
+              <Field label="Photo Strip Theme">
+                <select
+                  value={s.theme || "cyberpunk"}
+                  onChange={(e) => update({ theme: e.target.value as "cyberpunk" | "floral" })}
+                  className="w-full bg-input border border-border rounded-lg px-3 py-2 text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                >
+                  <option value="cyberpunk">⚡ Cyberpunk Neon (Dark)</option>
+                  <option value="floral">🌸 Pink Floral Birthday (Light)</option>
+                </select>
+              </Field>
               <Field label="Camera Device">
                 <select
                   value={s.cameraId}

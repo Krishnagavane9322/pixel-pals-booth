@@ -15,6 +15,7 @@ export type Settings = {
   colorTemperature: number;
   tint: number;
   photoZoom: number;
+  theme: "cyberpunk" | "floral";
 };
 
 const DEFAULTS: Settings = {
@@ -34,6 +35,7 @@ const DEFAULTS: Settings = {
   colorTemperature: 5000,
   tint: 0,
   photoZoom: 1.0,
+  theme: "cyberpunk",
 };
 
 const SETTINGS_KEY = "rovi.settings";
