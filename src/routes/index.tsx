@@ -64,7 +64,7 @@ function Kiosk() {
     
     // Attempt Vercel Blob cloud upload in the background
     try {
-      uploadPhoto({ id, dataUrl, eventName: s.eventName }).then((res) => {
+      uploadPhoto({ data: { id, dataUrl, eventName: s.eventName } }).then((res) => {
         if (res && res.success) {
           console.log("Photo strip uploaded to cloud:", res.url);
         } else {

@@ -27,7 +27,7 @@ function PhotoPage() {
     }
 
     // 2. Fall back to Vercel Blob cloud storage
-    getCloudPhoto(id)
+    getCloudPhoto({ data: id })
       .then((res) => {
         if (res && res.success && res.data) {
           setRec({
