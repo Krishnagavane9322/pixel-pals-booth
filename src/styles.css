@@ -94,3 +94,22 @@
   background-size: 40px 40px;
   mask-image: radial-gradient(ellipse at center, black 40%, transparent 80%);
 }
+
+/* ---- Print mode: only show the strip image, hide everything else ---- */
+@media print {
+  body > *:not(#rovi-print-overlay) { display: none !important; }
+  #rovi-print-overlay {
+    display: block !important;
+    position: fixed !important;
+    inset: 0 !important;
+    background: #fff !important;
+    z-index: 99999 !important;
+  }
+  #rovi-print-overlay img {
+    display: block !important;
+    width: 100vw !important;
+    height: 100vh !important;
+    object-fit: fill !important;
+  }
+  @page { margin: 0; }
+}

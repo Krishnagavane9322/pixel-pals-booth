@@ -93,6 +93,15 @@ function Kiosk() {
 
 /* -------------------- Welcome -------------------- */
 function Welcome({ onStart, settings }: { onStart: () => void; settings: Settings }) {
+  const [size, setSize] = useState(280);
+
+  useEffect(() => {
+    setSize(Math.min(320, window.innerWidth * 0.55));
+    const handleResize = () => setSize(Math.min(320, window.innerWidth * 0.55));
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
+
   return (
     <motion.button
       initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
@@ -100,7 +109,7 @@ function Welcome({ onStart, settings }: { onStart: () => void; settings: Setting
       className="absolute inset-0 w-full h-full flex flex-col items-center justify-center gap-8 px-6 text-center"
     >
       <div className="text-sm tracking-[0.4em] text-muted-foreground">{settings.eventName.toUpperCase()}</div>
-      <RobotFace size={Math.min(320, typeof window !== "undefined" ? window.innerWidth * 0.55 : 280)} />
+      <RobotFace size={size} />
       <motion.h1
         className="text-5xl sm:text-7xl md:text-8xl font-black neon-text"
         animate={{ scale: [1, 1.04, 1] }}
@@ -111,6 +120,59 @@ function Welcome({ onStart, settings }: { onStart: () => void; settings: Setting
       <div className="text-muted-foreground text-lg">Powered by ROVI AI Photo Booth</div>
     </motion.button>
   );
+}
+
+function getSoftwareCameraFilters(settings: Settings, caps: any) {
+  // --- Brightness from exposure ---
+  let brightness = 1;
+  if (settings.manualExposure) {
+    // Only simulate in software if camera doesn't support native controls
+    if (!caps.exposureTime || !caps.iso) {
+      brightness = (settings.exposureTime / 100) * (settings.iso / 400);
+    }
+  } else {
+    if (!caps.exposureCompensation && settings.exposureCompensation !== 0) {
+      brightness = 1 + settings.exposureCompensation * 0.2;
+    }
+  }
+  brightness = Math.max(0.3, Math.min(3.0, brightness));
+
+  // --- White Balance via pure CSS filters ---
+  // Map color temperature (K) to a sepia + hue-rotate approximation
+  // 5000K = neutral. Warmer = more orange. Cooler = more blue.
+  let sepia = 0;
+  let hueRotate = 0;
+  let saturation = 1;
+
+  if (settings.manualWhiteBalance && !caps.colorTemperature) {
+    const T = settings.colorTemperature;
+    const delta = T - 5000; // positive = warmer, negative = cooler
+
+    if (delta > 0) {
+      // Warmer: add sepia (orange) tint
+      sepia = Math.min(0.45, (delta / 6000) * 0.45);
+      hueRotate = Math.min(15, (delta / 6000) * 15); // slight orange shift
+    } else {
+      // Cooler: rotate hue toward blue
+      hueRotate = Math.max(-30, (delta / 3000) * 30);
+      saturation = 1 + Math.abs(delta / 6000) * 0.2;
+    }
+  }
+
+  // Tint: green-magenta axis approximated via hue-rotate
+  let tintHue = 0;
+  if (settings.manualWhiteBalance) {
+    tintHue = -(settings.tint / 50) * 12; // max ±12deg rotation
+  }
+
+  const filters: string[] = [`brightness(${brightness.toFixed(2)})` ];
+  if (sepia > 0) filters.push(`sepia(${sepia.toFixed(3)})`);
+  if (hueRotate !== 0 || tintHue !== 0) filters.push(`hue-rotate(${(hueRotate + tintHue).toFixed(1)}deg)`);
+  if (saturation !== 1) filters.push(`saturate(${saturation.toFixed(2)})`);
+
+  const cssFilter = filters.join(" ");
+
+  return { cssFilter };
 }
 
 /* -------------------- Camera -------------------- */
@@ -124,25 +186,136 @@ function CameraScreen({
   const [flash, setFlash] = useState(false);
   const [shotIdx, setShotIdx] = useState(0);
   const photosRef = useRef<string[]>([]);
+  const [capabilities, setCapabilities] = useState<any>({});
+  const { cssFilter } = getSoftwareCameraFilters(settings, capabilities);
 
   useEffect(() => {
     let stream: MediaStream | null = null;
+    let cancelled = false;
+
     (async () => {
       try {
-        stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 } },
-          audio: false,
-        });
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          await videoRef.current.play();
-          setReady(true);
+        const videoConstraints: MediaTrackConstraints = {
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+        };
+
+        if (settings.cameraId) {
+          videoConstraints.deviceId = { exact: settings.cameraId };
+        } else {
+          videoConstraints.facingMode = "user";
         }
+
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: videoConstraints,
+            audio: false,
+          });
+        } catch (deviceErr) {
+          if (settings.cameraId) {
+            console.warn("Selected camera failed, falling back to default camera:", deviceErr);
+            stream = await navigator.mediaDevices.getUserMedia({
+              video: { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 } },
+              audio: false,
+            });
+          } else {
+            throw deviceErr;
+          }
+        }
+
+        if (cancelled) {
+          stream.getTracks().forEach((t) => t.stop());
+          return;
+        }
+
+        const video = videoRef.current;
+        if (!video) return;
+
+        video.srcObject = stream;
+
+        // Query capabilities and apply constraints
+        const track = stream.getVideoTracks()[0];
+        if (track) {
+          try {
+            const caps = (typeof track.getCapabilities === "function" ? track.getCapabilities() : {}) as any;
+            setCapabilities(caps);
+            const advancedConstraints: any = {};
+
+            // 1. Exposure Mode & manual values
+            if (settings.manualExposure) {
+              if (caps.exposureMode?.includes("manual")) {
+                advancedConstraints.exposureMode = "manual";
+              }
+              if (settings.exposureTime && caps.exposureTime) {
+                const { min, max } = caps.exposureTime;
+                advancedConstraints.exposureTime = Math.max(min, Math.min(max, settings.exposureTime));
+              }
+              if (settings.iso && caps.iso) {
+                const { min, max } = caps.iso;
+                advancedConstraints.iso = Math.max(min, Math.min(max, settings.iso));
+              }
+            } else {
+              if (caps.exposureMode?.includes("continuous")) {
+                advancedConstraints.exposureMode = "continuous";
+              }
+              if (settings.exposureCompensation !== undefined && caps.exposureCompensation) {
+                const { min, max } = caps.exposureCompensation;
+                advancedConstraints.exposureCompensation = Math.max(min, Math.min(max, settings.exposureCompensation));
+              }
+            }
+
+            // 2. White Balance Mode & colorTemperature
+            if (settings.manualWhiteBalance) {
+              if (caps.whiteBalanceMode?.includes("manual")) {
+                advancedConstraints.whiteBalanceMode = "manual";
+              }
+              if (settings.colorTemperature && caps.colorTemperature) {
+                const { min, max } = caps.colorTemperature;
+                advancedConstraints.colorTemperature = Math.max(min, Math.min(max, settings.colorTemperature));
+              }
+            } else {
+              if (caps.whiteBalanceMode?.includes("continuous")) {
+                advancedConstraints.whiteBalanceMode = "continuous";
+              }
+            }
+
+            if (Object.keys(advancedConstraints).length > 0) {
+              await track.applyConstraints({ advanced: [advancedConstraints] });
+            }
+          } catch (constraintErr) {
+            console.warn("Failed to apply camera constraints:", constraintErr);
+          }
+        }
+
+        // Wait for the browser to load video metadata before calling play()
+        // This prevents the "play() interrupted by load request" AbortError
+        await new Promise<void>((resolve, reject) => {
+          const onReady = () => { video.removeEventListener("loadedmetadata", onReady); resolve(); };
+          const onError = (e: Event) => { video.removeEventListener("error", onError); reject(e); };
+          video.addEventListener("loadedmetadata", onReady);
+          video.addEventListener("error", onError);
+        });
+
+        if (cancelled) return;
+
+        try {
+          await video.play();
+        } catch (playErr: any) {
+          // AbortError happens when component unmounts mid-play — safe to ignore
+          if (playErr?.name === "AbortError") return;
+          throw playErr;
+        }
+
+        if (!cancelled) setReady(true);
       } catch (e: any) {
-        setError(e?.message || "Camera permission denied");
+        if (!cancelled) setError(e?.message || "Camera permission denied");
       }
     })();
-    return () => { stream?.getTracks().forEach((t) => t.stop()); };
+
+    return () => {
+      cancelled = true;
+      stream?.getTracks().forEach((t) => t.stop());
+    };
   }, []);
 
   // capture sequence
@@ -171,7 +344,7 @@ function CameraScreen({
         setShotIdx(i);
         await runCountdown(i === 0 ? settings.countdownTime : settings.photoGap);
         if (cancelled || !videoRef.current) return;
-        const img = captureFromVideo(videoRef.current);
+        const img = captureFromVideo(videoRef.current, cssFilter);
         photosRef.current.push(img);
         setFlash(true);
         setTimeout(() => setFlash(false), 220);
@@ -199,7 +372,7 @@ function CameraScreen({
             ref={videoRef}
             playsInline muted
             className="absolute inset-0 w-full h-full object-cover"
-            style={{ transform: "scaleX(-1)" }}
+            style={{ transform: `scaleX(-1) scale(${settings.photoZoom || 1.0})`, filter: cssFilter }}
           />
           {!ready && !error && (
             <div className="absolute inset-0 flex items-center justify-center text-muted-foreground">
@@ -249,6 +422,8 @@ function CameraScreen({
           ))}
         </div>
       </div>
+
+
     </motion.div>
   );
 }
@@ -295,22 +470,93 @@ function Preview({
     logDownload(strip.id);
   };
 
-  const handlePrint = () => {
-    const w = window.open("", "_blank", "noopener,noreferrer,width=400,height=900");
-    if (!w) { window.print(); return; }
-    w.document.write(`
-      <html><head><title>Print</title>
-      <style>
-        @page { size: 2in 6in; margin: 0; }
-        html,body { margin:0; padding:0; background:#fff; }
-        img { width: 2in; height: 6in; display:block; }
-      </style></head><body>
-      <img src="${strip.dataUrl}" onload="setTimeout(()=>{window.focus();window.print();}, 100)" />
-      </body></html>
-    `);
-    w.document.close();
+  const handlePrint = async () => {
+    // 1. Create a temporary image to load the single strip base64 content
+    const img = new Image();
+    const loadPromise = new Promise((resolve) => {
+      img.onload = resolve;
+    });
+    img.src = strip.dataUrl;
+    await loadPromise;
+
+    // 2. Create a 6x4 inch canvas at 300 DPI (1800x1200 px) for landscape printing
+    const canvas = document.createElement("canvas");
+    canvas.width = 1800;
+    canvas.height = 1200;
+    const ctx = canvas.getContext("2d")!;
+
+    // 3. Fill canvas background with solid white
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, 1800, 1200);
+
+    // 4. Draw first copy (top half) rotated 90 degrees counter-clockwise
+    ctx.save();
+    ctx.translate(0, 600);
+    ctx.rotate(-Math.PI / 2);
+    ctx.drawImage(img, 0, 0, img.width, img.height);
+    ctx.restore();
+
+    // 5. Draw second copy (bottom half) rotated 90 degrees counter-clockwise
+    ctx.save();
+    ctx.translate(0, 1200);
+    ctx.rotate(-Math.PI / 2);
+    ctx.drawImage(img, 0, 0, img.width, img.height);
+    ctx.restore();
+
+    // 6. Draw dashed cut line in the middle (y = 600 px)
+    ctx.setLineDash([16, 12]);
+    ctx.strokeStyle = "rgba(180, 180, 180, 0.8)";
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.moveTo(0, 600);
+    ctx.lineTo(1800, 600);
+    ctx.stroke();
+
+    const doubleStripDataUrl = canvas.toDataURL("image/jpeg", 0.94);
+
+    const popup = window.open("", "_blank", "width=720,height=480");
+    if (popup) {
+      popup.document.write(`<!DOCTYPE html><html><head><title>ROVI Photo Print</title>
+<style>
+  @page { margin: 0; }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    width: 100%;
+    height: 100%;
+    background: #ffffff;
+    overflow: hidden;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  img {
+    display: block;
+    width: 100vw;
+    height: 100vh;
+    object-fit: fill;
+    page-break-after: avoid;
+    break-after: avoid;
+  }
+</style></head>
+<body>
+  <img id="p" src="${doubleStripDataUrl}" />
+  <script>document.getElementById('p').onload=function(){setTimeout(function(){window.focus();window.print();window.close();},400);};</script>
+</body></html>`);
+      popup.document.close();
+    } else {
+      // Fallback: hidden overlay print
+      const overlay = document.createElement("div");
+      overlay.id = "rovi-print-overlay";
+      overlay.style.display = "none";
+      const printImg = document.createElement("img");
+      printImg.src = doubleStripDataUrl;
+      overlay.appendChild(printImg);
+      document.body.appendChild(overlay);
+      window.print();
+      document.body.removeChild(overlay);
+    }
     logPrint(strip.id);
   };
+
 
   const handleQR = async () => {
     const url = `${window.location.origin}/photo/${strip.id}`;

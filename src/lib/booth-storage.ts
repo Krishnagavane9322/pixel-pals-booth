@@ -6,6 +6,15 @@ export type Settings = {
   enableQR: boolean;
   countdownTime: number;
   photoGap: number;
+  cameraId: string;
+  exposureCompensation: number;
+  manualExposure: boolean;
+  exposureTime: number;
+  iso: number;
+  manualWhiteBalance: boolean;
+  colorTemperature: number;
+  tint: number;
+  photoZoom: number;
 };
 
 const DEFAULTS: Settings = {
@@ -16,6 +25,15 @@ const DEFAULTS: Settings = {
   enableQR: true,
   countdownTime: 3,
   photoGap: 3,
+  cameraId: "",
+  exposureCompensation: 0.0,
+  manualExposure: false,
+  exposureTime: 100,
+  iso: 400,
+  manualWhiteBalance: false,
+  colorTemperature: 5000,
+  tint: 0,
+  photoZoom: 1.0,
 };
 
 const SETTINGS_KEY = "rovi.settings";

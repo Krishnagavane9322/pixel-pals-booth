@@ -1,10 +1,10 @@
 import type { Settings } from "./booth-storage";
 
-// 2x6 inch photo strip at 300 DPI (standard photo booth)
-// width 600px (2"), height 1800px (6") — produces a tall 2x6 strip
-// Spec asked for "2x4" — we use 600x1800 to fit 3 photos cleanly while staying 2" wide.
-export const STRIP_W = 600;
-export const STRIP_H = 1800;
+// 2x6 inch canvas at 300 DPI = 600x1800px
+// Layout: The canvas itself is a true 2x6 strip.
+// DNP RX1 prints this and cuts at the 2" mark.
+export const STRIP_W = 600;   // 2" @ 300dpi
+export const STRIP_H = 1800;   // 6" @ 300dpi
 
 export async function buildStrip(
   photos: string[],
@@ -15,58 +15,70 @@ export async function buildStrip(
   canvas.height = STRIP_H;
   const ctx = canvas.getContext("2d")!;
 
-  // Background
-  const grad = ctx.createLinearGradient(0, 0, 0, STRIP_H);
+  // ── Dark strip background ──
+  const grad = ctx.createLinearGradient(0, 0, STRIP_W, STRIP_H);
   grad.addColorStop(0, "#0b1020");
   grad.addColorStop(1, "#1a0b2e");
   ctx.fillStyle = grad;
   ctx.fillRect(0, 0, STRIP_W, STRIP_H);
 
-  const pad = 30;
-  const photoW = STRIP_W - pad * 2;
-  const photoH = 480;
-  const gap = 20;
-  const footerH = STRIP_H - (pad + (photoH + gap) * 3) - pad;
+  // ── Photos: 3 stacked ──
+  const footerH = 200;
+  const photosAreaH = STRIP_H - footerH;
+  const photoH = Math.floor(photosAreaH / 3);
 
   const imgs = await Promise.all(photos.map(loadImg));
 
   for (let i = 0; i < 3; i++) {
-    const y = pad + i * (photoH + gap);
-    // frame
-    ctx.fillStyle = "#ffffff";
-    ctx.fillRect(pad - 4, y - 4, photoW + 8, photoH + 8);
-    drawCover(ctx, imgs[i], pad, y, photoW, photoH);
+    const y = i * photoH;
+    // Draw cover-cropped photo into the column with zoom support
+    drawCover(ctx, imgs[i], 0, y, STRIP_W, photoH, settings.photoZoom);
+
+    // Separator line between photos
+    if (i < 2) {
+      ctx.fillStyle = "rgba(0,0,0,0.7)";
+      ctx.fillRect(0, y + photoH - 2, STRIP_W, 4);
+    }
   }
 
-  // Footer
-  const footerY = pad + (photoH + gap) * 3;
-  ctx.fillStyle = "rgba(255,255,255,0.04)";
-  ctx.fillRect(pad, footerY, photoW, footerH);
+  // ── Footer ──
+  const footerY = photosAreaH;
+  ctx.fillStyle = "rgba(11,16,32,0.97)";
+  ctx.fillRect(0, footerY, STRIP_W, footerH);
 
-  // Logo
+  // Neon gradient border at top of footer
+  const footerGrad = ctx.createLinearGradient(0, 0, STRIP_W, 0);
+  footerGrad.addColorStop(0, "#00f5ff");
+  footerGrad.addColorStop(1, "#b44dff");
+  ctx.fillStyle = footerGrad;
+  ctx.fillRect(0, footerY, STRIP_W, 4);
+
+  // Logo (centered in strip)
   if (settings.logoDataUrl) {
     try {
       const logo = await loadImg(settings.logoDataUrl);
-      const lh = 90;
+      const lh = 70;
       const lw = (logo.width / logo.height) * lh;
-      ctx.drawImage(logo, (STRIP_W - lw) / 2, footerY + 20, lw, lh);
+      ctx.drawImage(logo, (STRIP_W - lw) / 2, footerY + 12, lw, lh);
     } catch {}
   }
 
   ctx.textAlign = "center";
+  const cx = STRIP_W / 2; // center of strip
+
   ctx.fillStyle = "#7ee7ff";
-  ctx.font = "bold 38px ui-sans-serif, system-ui, sans-serif";
-  ctx.fillText(settings.watermark || "ROVI AI Photo Booth", STRIP_W / 2, footerY + footerH - 90);
+  ctx.font = "bold 36px ui-sans-serif, system-ui, sans-serif";
+  ctx.fillText(settings.watermark || "ROVI AI Photo Booth", cx, footerY + footerH - 76);
 
   ctx.fillStyle = "#ffffff";
-  ctx.font = "600 28px ui-sans-serif, system-ui, sans-serif";
-  ctx.fillText(settings.eventName, STRIP_W / 2, footerY + footerH - 55);
+  ctx.font = "600 26px ui-sans-serif, system-ui, sans-serif";
+  ctx.fillText(settings.eventName, cx, footerY + footerH - 46);
 
   ctx.fillStyle = "#c9b8ff";
-  ctx.font = "22px ui-sans-serif, system-ui, sans-serif";
-  ctx.fillText(new Date().toLocaleString(), STRIP_W / 2, footerY + footerH - 25);
+  ctx.font = "20px ui-sans-serif, system-ui, sans-serif";
+  ctx.fillText(new Date().toLocaleString(), cx, footerY + footerH - 18);
 
-  return canvas.toDataURL("image/jpeg", 0.92);
+  return canvas.toDataURL("image/jpeg", 0.94);
 }
 
 function loadImg(src: string): Promise<HTMLImageElement> {
@@ -83,6 +95,7 @@ function drawCover(
   ctx: CanvasRenderingContext2D,
   img: HTMLImageElement,
   x: number, y: number, w: number, h: number,
+  zoom: number = 1.0,
 ) {
   const ir = img.width / img.height;
   const tr = w / h;
@@ -94,29 +107,37 @@ function drawCover(
     sh = img.width / tr;
     sy = (img.height - sh) / 2;
   }
+
+  // Apply zoom factor by shrinking the source cropping rectangle from its center
+  const currentZoom = zoom || 1.0;
+  if (currentZoom > 1.0) {
+    const zoomedSw = sw / currentZoom;
+    const zoomedSh = sh / currentZoom;
+    sx = sx + (sw - zoomedSw) / 2;
+    sy = sy + (sh - zoomedSh) / 2;
+    sw = zoomedSw;
+    sh = zoomedSh;
+  }
+
   ctx.drawImage(img, sx, sy, sw, sh, x, y, w, h);
 }
 
-export function captureFromVideo(video: HTMLVideoElement): string {
+export function captureFromVideo(video: HTMLVideoElement, cssFilter?: string): string {
   const c = document.createElement("canvas");
-  const w = video.videoWidth || 1280;
-  const h = video.videoHeight || 720;
-  // crop to 4:3 portrait-ish for booth feel
-  const targetRatio = 4 / 3;
-  let sw = w, sh = h, sx = 0, sy = 0;
-  if (w / h > targetRatio) {
-    sw = h * targetRatio;
-    sx = (w - sw) / 2;
-  } else {
-    sh = w / targetRatio;
-    sy = (h - sh) / 2;
-  }
-  c.width = 1200;
-  c.height = 900;
+  const vw = video.videoWidth || 1280;
+  const vh = video.videoHeight || 720;
+
+  // Capture full frame — no forced crop, let the strip layout handle aspect ratio
+  c.width = vw;
+  c.height = vh;
   const ctx = c.getContext("2d")!;
-  // mirror
+  // mirror horizontally (selfie view)
   ctx.translate(c.width, 0);
   ctx.scale(-1, 1);
-  ctx.drawImage(video, sx, sy, sw, sh, 0, 0, c.width, c.height);
-  return c.toDataURL("image/jpeg", 0.92);
+  if (cssFilter) {
+    ctx.filter = cssFilter;
+  }
+  ctx.drawImage(video, 0, 0, vw, vh);
+  return c.toDataURL("image/jpeg", 0.94);
 }
+

@@ -4,8 +4,10 @@ import { useEffect, useState } from "react";
 export function RobotFace({ size = 280 }: { size?: number }) {
   const [look, setLook] = useState({ x: 0, y: 0 });
   const [blink, setBlink] = useState(false);
+  const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
+    setMounted(true);
     const m = setInterval(() => {
       setLook({ x: (Math.random() - 0.5) * 10, y: (Math.random() - 0.5) * 6 });
     }, 900);
@@ -16,9 +18,14 @@ export function RobotFace({ size = 280 }: { size?: number }) {
     return () => { clearInterval(m); clearInterval(b); };
   }, []);
 
+  // Use a stable size for SSR; update only after mount to avoid hydration mismatch
+  const s = mounted ? size : 280;
+  const eyeSize = s * 0.22;
+
   return (
     <motion.div
-      style={{ width: size, height: size }}
+      suppressHydrationWarning
+      style={{ width: s, height: s }}
       animate={{ y: [0, -8, 0] }}
       transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
       className="relative"
@@ -44,7 +51,7 @@ export function RobotFace({ size = 280 }: { size?: number }) {
       {/* eyes */}
       <div className="absolute inset-0 flex items-center justify-center gap-[18%]">
         {[0, 1].map((i) => (
-          <div key={i} className="relative" style={{ width: size * 0.22, height: size * 0.22 }}>
+          <div key={i} suppressHydrationWarning className="relative" style={{ width: eyeSize, height: eyeSize }}>
             <div
               className="absolute inset-0 rounded-full"
               style={{
