@@ -162,7 +162,12 @@ function Kiosk() {
       .then((res) => {
         let finalUrl = dataUrl;
         if (res && res.success && res.url) {
-          finalUrl = res.url;
+          // Convert relative URL (local dev: /photos/xxx.jpg) to absolute URL
+          // so the tablet can fetch it from the laptop's server over the network
+          const rawUrl = res.url;
+          finalUrl = rawUrl.startsWith("/")
+            ? `${window.location.origin}${rawUrl}`
+            : rawUrl;
           console.log("Photo processed and saved to:", finalUrl);
         } else {
           console.warn("Upload/Save failed, falling back to base64:", res?.error);
@@ -182,6 +187,7 @@ function Kiosk() {
       .catch((err) => {
         console.error("Failed to upload/save photo:", err);
         // Fallback: send base64 if upload fails
+        // NOTE: base64 may exceed Pusher's 10KB limit for large strips
         if (PUSHER_KEY && PUSHER_CLUSTER) {
           sendPusherEvent({
             data: {

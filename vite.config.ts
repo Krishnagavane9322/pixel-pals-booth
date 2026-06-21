@@ -7,6 +7,8 @@ import { nitro } from "nitro/vite";
 
 export default defineConfig({
   server: {
+    host: true,  // Expose on local network so tablet can reach laptop's server
+    port: 3000,
     watch: {
       ignored: ["**/public/photos/**"],
     },
