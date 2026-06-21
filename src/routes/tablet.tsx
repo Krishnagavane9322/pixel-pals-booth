@@ -4,8 +4,9 @@ import { z } from "zod";
 import Pusher from "pusher-js";
 import { sendPusherEvent } from "@/lib/pusher";
 import { motion, AnimatePresence } from "framer-motion";
-import { Printer, RefreshCw, Camera, ArrowLeft, WifiOff, AlertTriangle } from "lucide-react";
+import { Printer, RefreshCw, Download, QrCode, WifiOff, AlertTriangle } from "lucide-react";
 import { RobotFace } from "@/components/RobotFace";
+import QRCode from "qrcode";
 
 const searchSchema = z.object({
   channel: z.string().default("rovi-booth-default"),
@@ -13,6 +14,12 @@ const searchSchema = z.object({
 
 export const Route = createFileRoute("/tablet")({
   validateSearch: (search) => searchSchema.parse(search),
+  head: () => ({
+    meta: [
+      { title: "ROVI Photo Booth — Tablet Remote" },
+      { name: "viewport", content: "width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" },
+    ],
+  }),
   component: TabletRemote,
 });
 
@@ -22,13 +29,19 @@ function TabletRemote() {
   const { channel } = Route.useSearch();
   const [state, setState] = useState<TabletState>("welcome");
   const [stripUrl, setStripUrl] = useState<string | null>(null);
-  
+
   // Real-time mirrored camera states
   const [count, setCount] = useState<number | null>(null);
   const [flash, setFlash] = useState(false);
   const [shotIdx, setShotIdx] = useState(0);
   const [eventName, setEventName] = useState("ROVI Live Event");
   const [printLayout, setPrintLayout] = useState("2x6");
+  const [enablePrint, setEnablePrint] = useState(true);
+  const [enableQR, setEnableQR] = useState(true);
+
+  // QR code for downloading
+  const [qr, setQr] = useState<string | null>(null);
+  const [showQR, setShowQR] = useState(false);
 
   const [connected, setConnected] = useState(false);
   const [configError, setConfigError] = useState(false);
@@ -64,30 +77,42 @@ function TabletRemote() {
 
     setConnected(pusher.connection.state === "connected");
 
-    pusherChannel.bind("STATE_CHANGE", (msg: { 
-      screen: TabletState; 
-      count: number | null; 
-      shotIdx: number; 
+    pusherChannel.bind("STATE_CHANGE", (msg: {
+      screen: TabletState;
+      count: number | null;
+      shotIdx: number;
       flash: boolean;
       eventName?: string;
       printLayout?: string;
+      enablePrint?: boolean;
+      enableQR?: boolean;
     }) => {
-      setState(msg.screen);
+      // Only update screen if not going to preview (handled by PHOTO_READY)
+      if (msg.screen !== "preview") {
+        setState(msg.screen);
+      }
       setCount(msg.count);
       setShotIdx(msg.shotIdx);
       setFlash(msg.flash);
       if (msg.eventName) setEventName(msg.eventName);
       if (msg.printLayout) setPrintLayout(msg.printLayout);
+      if (msg.enablePrint !== undefined) setEnablePrint(msg.enablePrint);
+      if (msg.enableQR !== undefined) setEnableQR(msg.enableQR);
     });
 
-    pusherChannel.bind("PHOTO_READY", (msg: { dataUrl: string }) => {
-      setStripUrl(msg.dataUrl);
+    pusherChannel.bind("PHOTO_READY", (msg: { id?: string; dataUrl: string }) => {
+      const resolvedUrl = msg.dataUrl.startsWith("/")
+        ? `${window.location.origin}${msg.dataUrl}`
+        : msg.dataUrl;
+      setStripUrl(resolvedUrl);
       setState("preview");
     });
 
     pusherChannel.bind("RESET", () => {
       setState("welcome");
       setStripUrl(null);
+      setQr(null);
+      setShowQR(false);
     });
 
     return () => {
@@ -123,12 +148,34 @@ function TabletRemote() {
   const handleRetake = () => {
     triggerEvent("START_CAPTURE");
     setState("camera");
+    setStripUrl(null);
+    setQr(null);
+    setShowQR(false);
   };
 
   const handleGoHome = () => {
     triggerEvent("GO_HOME");
     setState("welcome");
     setStripUrl(null);
+    setQr(null);
+    setShowQR(false);
+  };
+
+  const handleDownload = () => {
+    if (!stripUrl) return;
+    const a = document.createElement("a");
+    a.href = stripUrl;
+    a.download = `rovi-photo-strip.jpg`;
+    a.click();
+  };
+
+  const handleQR = async () => {
+    if (!stripUrl) return;
+    // If stripUrl is a full URL use it; otherwise build from origin
+    const url = stripUrl.startsWith("http") ? stripUrl : `${window.location.origin}${stripUrl}`;
+    const dataUrl = await QRCode.toDataURL(url, { width: 512, margin: 2, color: { dark: "#000000", light: "#ffffff" } });
+    setQr(dataUrl);
+    setShowQR(true);
   };
 
   if (configError) {
@@ -163,13 +210,15 @@ function TabletRemote() {
   }
 
   return (
-    <div className="fixed inset-0 bg-neutral-950 text-white flex flex-col select-none justify-center items-center p-6 text-center overflow-y-auto">
+    <div className="fixed inset-0 grid-bg overflow-hidden select-none">
       {/* Small channel tag */}
-      <div className="absolute top-4 left-4 text-xs font-mono text-muted-foreground/30">
+      <div className="absolute top-4 left-4 text-xs font-mono text-muted-foreground/30 z-10">
         CH: {channel}
       </div>
 
       <AnimatePresence mode="wait">
+
+        {/* ── WELCOME ── mirrors laptop Welcome screen exactly */}
         {state === "welcome" && (
           <motion.button
             key="w"
@@ -180,61 +229,54 @@ function TabletRemote() {
             <div className="text-sm tracking-[0.4em] text-muted-foreground">{eventName.toUpperCase()}</div>
             <RobotFace size={240} />
             <motion.h1
-              className="text-5xl sm:text-7xl font-black neon-text"
+              className="text-5xl sm:text-7xl md:text-8xl font-black neon-text"
               animate={{ scale: [1, 1.04, 1] }}
               transition={{ duration: 2, repeat: Infinity }}
             >
               TOUCH TO START
             </motion.h1>
-            <div className="text-muted-foreground text-sm">Wireless Remote Control Enabled</div>
+            <div className="text-muted-foreground text-lg">Powered by ROVI AI Photo Booth</div>
           </motion.button>
         )}
 
+        {/* ── CAMERA ── mirrors laptop CameraScreen layout */}
         {state === "camera" && (
           <motion.div
             key="c"
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className="absolute inset-0 flex flex-col justify-between py-6"
+            className="absolute inset-0 flex flex-col"
           >
-            {/* Header info */}
-            <div className="flex items-center justify-between px-6">
+            {/* Header */}
+            <div className="flex items-center justify-between p-4">
               <div className="text-sm tracking-widest text-muted-foreground">PHOTO {shotIdx + 1} / {numShots}</div>
-              <button 
-                onClick={handleGoHome} 
-                className="px-4 py-2 text-xs rounded-xl bg-neutral-900 border border-neutral-800 text-muted-foreground hover:text-white"
+              <button
+                onClick={handleGoHome}
+                className="p-2 rounded-full bg-card/60 border border-border text-sm px-4"
               >
                 Cancel
               </button>
             </div>
 
-            {/* Live DSLR View Stream from digiCamControl */}
-            <div className="flex-1 relative flex items-center justify-center px-4 py-2">
-              <div className="relative w-full max-w-3xl aspect-[4/3] rounded-3xl overflow-hidden neon-border bg-black">
-                <img
-                  src={`http://${window.location.hostname}:8080/liveview.mjpg`}
-                  alt="DSLR Live Stream"
-                  className="absolute inset-0 w-full h-full object-cover transform scaleX(-1)"
-                  onError={(e) => {
-                    // Hide image and show simple message if DSLR stream is offline
-                    e.currentTarget.style.display = "none";
-                    const container = e.currentTarget.parentElement;
-                    if (container) {
-                      const msgDiv = container.querySelector(".fallback-preview");
-                      if (msgDiv) msgDiv.classList.remove("hidden");
-                    }
-                  }}
-                />
-                
-                {/* Fallback helper when camera is not turned on */}
-                <div className="fallback-preview hidden absolute inset-0 flex flex-col items-center justify-center text-center p-6 gap-2">
-                  <Camera className="w-10 h-10 text-muted-foreground animate-pulse" />
-                  <p className="text-sm text-muted-foreground font-semibold">DSLR Live View Offline</p>
-                  <p className="text-[10px] text-muted-foreground/60 max-w-xs">
-                    Please ensure digiCamControl is running on your laptop and your Nikon D5600 is powered on.
-                  </p>
+            {/* Camera view area — mirrors the laptop neon-border box */}
+            <div className="flex-1 relative flex items-center justify-center px-4">
+              <div className="relative w-full max-w-3xl aspect-[4/3] rounded-3xl overflow-hidden neon-border bg-black flex items-center justify-center">
+
+                {/* Background grid pattern as placeholder for camera */}
+                <div className="absolute inset-0 grid-bg opacity-40" />
+
+                {/* Camera icon placeholder */}
+                <div className="flex flex-col items-center gap-3 text-muted-foreground z-10">
+                  <motion.div
+                    animate={{ scale: [1, 1.08, 1], opacity: [0.5, 1, 0.5] }}
+                    transition={{ duration: 2, repeat: Infinity }}
+                    className="text-7xl"
+                  >
+                    📷
+                  </motion.div>
+                  <p className="text-sm font-medium">Camera active on laptop</p>
                 </div>
 
-                {/* Mirrored countdown animation */}
+                {/* Mirrored countdown overlay */}
                 <AnimatePresence>
                   {count !== null && (
                     <motion.div
@@ -243,33 +285,33 @@ function TabletRemote() {
                       animate={{ scale: 1, opacity: 1 }}
                       exit={{ scale: 0.5, opacity: 0 }}
                       transition={{ duration: 0.4 }}
-                      className="absolute inset-0 flex items-center justify-center bg-black/20"
+                      className="absolute inset-0 flex items-center justify-center bg-black/30 z-20"
                     >
                       <div className="text-[14rem] sm:text-[18rem] font-black neon-text leading-none">{count}</div>
                     </motion.div>
                   )}
                 </AnimatePresence>
 
-                {/* White screen camera flash mirroring */}
-                {flash && <div className="absolute inset-0 bg-white" />}
+                {/* White flash mirroring */}
+                {flash && <div className="absolute inset-0 bg-white z-30" />}
               </div>
             </div>
 
-            {/* Bottom count status */}
-            <div className="text-center px-4">
+            {/* Bottom status — mirrors laptop bottom bar */}
+            <div className="text-center pb-8 px-4">
               <motion.div
-                className="text-3xl font-black neon-text"
+                className="text-3xl sm:text-5xl font-black neon-text"
                 animate={{ opacity: [0.7, 1, 0.7] }}
                 transition={{ duration: 1.6, repeat: Infinity }}
               >
                 {count === null ? "Get Ready" : "Smile!"}
               </motion.div>
-              <div className="mt-3 flex justify-center gap-2">
+              <div className="mt-2 flex justify-center gap-2">
                 {Array.from({ length: numShots }).map((_, i) => (
                   <div key={i}
                     className={`h-2 w-10 rounded-full transition ${
-                      i < shotIdx ? "bg-primary" : i === shotIdx ? "bg-accent" : "bg-neutral-800"
-                    }`} 
+                      i < shotIdx ? "bg-primary" : i === shotIdx ? "bg-accent" : "bg-secondary"
+                    }`}
                   />
                 ))}
               </div>
@@ -277,15 +319,16 @@ function TabletRemote() {
           </motion.div>
         )}
 
+        {/* ── PROCESSING ── mirrors laptop Processing screen exactly */}
         {state === "processing" && (
           <motion.div
             key="p"
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
             className="absolute inset-0 flex flex-col items-center justify-center gap-8 px-6 text-center"
           >
-            <RobotFace size={200} />
-            <h2 className="text-4xl font-black neon-text">Creating Photo Strip</h2>
-            <div className="w-72 max-w-full h-3 rounded-full bg-neutral-900 overflow-hidden border border-neutral-850">
+            <RobotFace size={220} />
+            <h2 className="text-4xl sm:text-6xl font-black neon-text">Creating Photo Strip</h2>
+            <div className="w-72 max-w-full h-3 rounded-full bg-secondary overflow-hidden">
               <motion.div
                 className="h-full"
                 style={{ background: "linear-gradient(90deg, var(--neon), var(--neon-2))" }}
@@ -293,46 +336,121 @@ function TabletRemote() {
                 transition={{ duration: 1.6, times: [0, 0.8, 1] }}
               />
             </div>
-            <div className="text-muted-foreground text-sm">Please wait while the strip is generated...</div>
+            <div className="text-muted-foreground">AI is composing your memory…</div>
           </motion.div>
         )}
 
+        {/* ── PREVIEW ── mirrors laptop Preview screen exactly */}
         {state === "preview" && stripUrl && (
           <motion.div
-            key="p-view"
+            key="pv"
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className="flex flex-col lg:flex-row items-center gap-8 max-w-4xl w-full max-h-[90vh] p-4"
+            className="absolute inset-0 flex flex-col lg:flex-row items-center justify-center gap-6 p-4 sm:p-8 overflow-y-auto"
           >
-            <img src={stripUrl} alt="Your Strip" className="h-[55vh] w-auto rounded-xl border border-neutral-800 shadow-2xl bg-white mx-auto" />
-            
-            <div className="flex flex-col gap-4 w-full max-w-sm shrink-0">
-              <h2 className="text-3xl font-black neon-text">Looking Great!</h2>
-              <p className="text-xs text-muted-foreground">Photos are saved and ready to print.</p>
-              
-              <button
-                onClick={handlePrint}
-                className="flex items-center justify-center gap-3 bg-primary text-primary-foreground rounded-2xl py-5 text-xl font-bold shadow-lg hover:brightness-110 active:scale-96 transition"
-              >
-                <Printer className="w-6 h-6" /> Print Photo Strip
-              </button>
+            {/* Strip image with spring animation — same as laptop */}
+            <motion.div
+              initial={{ scale: 0.7, rotate: -4 }} animate={{ scale: 1, rotate: 0 }}
+              transition={{ type: "spring", stiffness: 120, damping: 14 }}
+              className="shrink-0"
+            >
+              <img
+                src={stripUrl}
+                alt="Photo strip"
+                className="h-[60vh] lg:h-[85vh] max-w-full w-auto rounded-xl shadow-2xl neon-border bg-white"
+              />
+            </motion.div>
 
-              <button
-                onClick={handleRetake}
-                className="flex items-center justify-center gap-3 bg-neutral-900 border border-neutral-800 rounded-2xl py-4 text-lg font-semibold hover:bg-neutral-800 active:scale-96 transition"
-              >
-                <RefreshCw className="w-5 h-5" /> Retake Photos
-              </button>
+            {/* Buttons panel — same as laptop */}
+            <div className="flex flex-col gap-3 w-full max-w-sm">
+              <div className="text-center mb-2">
+                <div className="text-3xl font-black neon-text">Looking Great!</div>
+                <div className="text-muted-foreground text-sm">{eventName}</div>
+              </div>
 
-              <button
-                onClick={handleGoHome}
-                className="mt-4 flex items-center justify-center gap-2 text-muted-foreground hover:text-white transition py-2"
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                transition={{ delay: 0.3 }}
+                className="p-3 rounded-2xl text-xs leading-normal border text-center font-medium shadow-md bg-primary/10 border-primary/20 text-primary"
               >
-                <ArrowLeft className="w-4 h-4" /> Back to start
-              </button>
+                📢 <strong>Hint:</strong> If you want to print your photos, please click on the <strong>Print Photo</strong> button below!
+              </motion.div>
+
+              <TabletBigBtn onClick={handleRetake} icon={<RefreshCw />} label="Retake Photos" tone="secondary" />
+              {enablePrint && <TabletBigBtn onClick={handlePrint} icon={<Printer />} label="Print Photo" tone="primary" />}
+              <TabletBigBtn onClick={handleDownload} icon={<Download />} label="Download" tone="secondary" />
+              {enableQR && <TabletBigBtn onClick={handleQR} icon={<QrCode />} label="Generate QR Code" tone="accent" />}
+              <button onClick={handleGoHome} className="mt-2 text-muted-foreground hover:text-foreground py-2">← Back to start</button>
             </div>
+
+            {/* QR modal */}
+            <AnimatePresence>
+              {showQR && qr && (
+                <motion.div
+                  initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                  className="fixed inset-0 z-50 bg-black/80 backdrop-blur flex items-center justify-center p-6"
+                  onClick={() => setShowQR(false)}
+                >
+                  <motion.div
+                    initial={{ scale: 0.8 }} animate={{ scale: 1 }} exit={{ scale: 0.8 }}
+                    onClick={(e) => e.stopPropagation()}
+                    className="bg-card neon-border rounded-2xl p-8 max-w-sm w-full text-center"
+                  >
+                    <h3 className="text-3xl font-black neon-text mb-2">Scan To Download</h3>
+                    <p className="text-muted-foreground text-sm mb-4">Open camera on your phone and scan</p>
+                    <img src={qr} alt="QR" className="w-full rounded-xl bg-white p-3" />
+                    <button onClick={() => setShowQR(false)} className="mt-5 w-full bg-primary text-primary-foreground rounded-xl py-3 font-bold">
+                      Done
+                    </button>
+                  </motion.div>
+                </motion.div>
+              )}
+            </AnimatePresence>
           </motion.div>
         )}
+
+        {/* ── PREVIEW waiting for strip ── */}
+        {state === "preview" && !stripUrl && (
+          <motion.div
+            key="pv-wait"
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="absolute inset-0 flex flex-col items-center justify-center gap-8 px-6 text-center"
+          >
+            <RobotFace size={220} />
+            <h2 className="text-4xl sm:text-6xl font-black neon-text">Creating Photo Strip</h2>
+            <div className="w-72 max-w-full h-3 rounded-full bg-secondary overflow-hidden">
+              <motion.div
+                className="h-full"
+                style={{ background: "linear-gradient(90deg, var(--neon), var(--neon-2))" }}
+                animate={{ width: ["5%", "90%"] }}
+                transition={{ duration: 4, ease: "easeInOut", repeat: Infinity, repeatType: "reverse" }}
+              />
+            </div>
+            <div className="text-muted-foreground">AI is composing your memory…</div>
+          </motion.div>
+        )}
+
       </AnimatePresence>
     </div>
+  );
+}
+
+function TabletBigBtn({
+  onClick, icon, label, tone,
+}: { onClick: () => void; icon: React.ReactNode; label: string; tone: "primary" | "secondary" | "accent" }) {
+  const styles =
+    tone === "primary"
+      ? "bg-primary text-primary-foreground"
+      : tone === "accent"
+        ? "bg-accent text-accent-foreground"
+        : "bg-secondary text-secondary-foreground border border-border";
+  return (
+    <motion.button
+      whileTap={{ scale: 0.96 }}
+      onClick={onClick}
+      className={`flex items-center justify-center gap-3 rounded-2xl py-5 px-5 text-xl font-bold shadow-lg ${styles}`}
+    >
+      {icon}<span>{label}</span>
+    </motion.button>
   );
 }

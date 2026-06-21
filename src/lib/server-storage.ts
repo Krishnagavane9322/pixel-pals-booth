@@ -1,5 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { put, list, head } from "@vercel/blob";
+import fs from "fs";
+import path from "path";
 
 export type CloudPhotoData = {
   url: string;
@@ -11,10 +13,27 @@ export type CloudPhotoData = {
 export const uploadPhoto = createServerFn({ method: "POST" })
   .validator((d: { id: string; dataUrl: string; eventName: string }) => d)
   .handler(async ({ data }) => {
-    // Check if token exists, if not fail gracefully for local-only offline mode
+    // Check if token exists, if not fall back to local disk storage
     if (!process.env.BLOB_READ_WRITE_TOKEN) {
-      console.warn("BLOB_READ_WRITE_TOKEN environment variable is not defined. Falling back to offline mode.");
-      return { success: false, error: "Offline mode: No token" };
+      console.warn("BLOB_READ_WRITE_TOKEN environment variable is not defined. Saving to local public/photos/.");
+      try {
+        const base64Data = data.dataUrl.split(",")[1];
+        const buffer = Buffer.from(base64Data, "base64");
+
+        const dir = path.join(process.cwd(), "public", "photos");
+        if (!fs.existsSync(dir)) {
+          fs.mkdirSync(dir, { recursive: true });
+        }
+
+        const filename = `${data.id}.jpg`;
+        const filePath = path.join(dir, filename);
+        await fs.promises.writeFile(filePath, buffer);
+
+        return { success: true, url: `/photos/${filename}` };
+      } catch (err: any) {
+        console.error("Failed to save local photo:", err);
+        return { success: false, error: "Offline local save failed: " + err.message };
+      }
     }
 
     try {

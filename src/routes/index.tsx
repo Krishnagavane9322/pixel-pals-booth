@@ -135,10 +135,13 @@ function Kiosk() {
           flash: screen === "camera" ? cameraState.flash : false,
           eventName: settings.eventName,
           printLayout: settings.printLayout,
+          theme: settings.theme,
+          enablePrint: settings.enablePrint,
+          enableQR: settings.enableQR,
         },
       },
     }).catch((err) => console.warn("Failed to broadcast state change:", err));
-  }, [screen, cameraState, channel, PUSHER_KEY, PUSHER_CLUSTER]);
+  }, [screen, cameraState, channel, settings, PUSHER_KEY, PUSHER_CLUSTER]);
 
   const onCapturedAll = useCallback(async (imgs: string[]) => {
     setPhotos(imgs);
@@ -151,33 +154,44 @@ function Kiosk() {
     saveStrip({ id, dataUrl, createdAt: Date.now(), eventName: s.eventName });
     setStrip({ id, dataUrl });
 
-    // Broadcast ready photo back to the tablet
-    if (PUSHER_KEY && PUSHER_CLUSTER) {
-      sendPusherEvent({
-        data: {
-          channel,
-          event: "PHOTO_READY",
-          data: { dataUrl },
-        },
-      }).catch((err) => console.warn("Failed to broadcast PHOTO_READY:", err));
-    }
-    
-    // Attempt Vercel Blob cloud upload in the background
-    try {
-      uploadPhoto({ data: { id, dataUrl, eventName: s.eventName } }).then((res) => {
-        if (res && res.success) {
-          console.log("Photo strip uploaded to cloud:", res.url);
-        } else {
-          console.warn("Cloud upload failed:", res?.error);
-        }
-      }).catch((err) => {
-        console.warn("Failed background cloud upload promise:", err);
-      });
-    } catch (uploadErr) {
-      console.warn("Failed background cloud upload:", uploadErr);
-    }
-    
+    // Transition the laptop to preview immediately (non-blocking)
     setScreen("preview");
+
+    // Perform upload/save in the background
+    uploadPhoto({ data: { id, dataUrl, eventName: s.eventName } })
+      .then((res) => {
+        let finalUrl = dataUrl;
+        if (res && res.success && res.url) {
+          finalUrl = res.url;
+          console.log("Photo processed and saved to:", finalUrl);
+        } else {
+          console.warn("Upload/Save failed, falling back to base64:", res?.error);
+        }
+
+        // Broadcast ready photo back to the tablet
+        if (PUSHER_KEY && PUSHER_CLUSTER) {
+          sendPusherEvent({
+            data: {
+              channel,
+              event: "PHOTO_READY",
+              data: { id, dataUrl: finalUrl },
+            },
+          }).catch((err) => console.warn("Failed to broadcast PHOTO_READY:", err));
+        }
+      })
+      .catch((err) => {
+        console.error("Failed to upload/save photo:", err);
+        // Fallback: send base64 if upload fails
+        if (PUSHER_KEY && PUSHER_CLUSTER) {
+          sendPusherEvent({
+            data: {
+              channel,
+              event: "PHOTO_READY",
+              data: { id, dataUrl },
+            },
+          }).catch((e) => console.warn(e));
+        }
+      });
   }, [channel, PUSHER_KEY, PUSHER_CLUSTER]);
 
   return (

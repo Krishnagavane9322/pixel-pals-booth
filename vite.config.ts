@@ -6,6 +6,11 @@ import react from "@vitejs/plugin-react";
 import { nitro } from "nitro/vite";
 
 export default defineConfig({
+  server: {
+    watch: {
+      ignored: ["**/public/photos/**"],
+    },
+  },
   plugins: [
     tailwindcss(),
     tsconfigPaths(),
