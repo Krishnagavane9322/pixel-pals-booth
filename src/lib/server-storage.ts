@@ -59,7 +59,25 @@ export const getCloudPhoto = createServerFn({ method: "GET" })
   .validator((id: string) => id)
   .handler(async ({ data: id }) => {
     if (!process.env.BLOB_READ_WRITE_TOKEN) {
-      return { success: false, error: "No token" };
+      try {
+        const filename = `${id}.jpg`;
+        const dir = path.join(process.cwd(), "public", "photos");
+        const filePath = path.join(dir, filename);
+        if (fs.existsSync(filePath)) {
+          const stats = fs.statSync(filePath);
+          return {
+            success: true,
+            data: {
+              url: `/photos/${filename}`,
+              eventName: "ROVI Live Event",
+              createdAt: stats.mtimeMs,
+            } as CloudPhotoData,
+          };
+        }
+      } catch (err: any) {
+        console.error("Failed to read local photo for cloud detail:", err);
+      }
+      return { success: false, error: "No token and not found locally" };
     }
 
     try {

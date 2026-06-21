@@ -101,9 +101,22 @@ function TabletRemote() {
     });
 
     pusherChannel.bind("PHOTO_READY", (msg: { id?: string; dataUrl: string }) => {
-      const resolvedUrl = msg.dataUrl.startsWith("/")
+      let resolvedUrl = msg.dataUrl.startsWith("/")
         ? `${window.location.origin}${msg.dataUrl}`
         : msg.dataUrl;
+
+      // If the URL points to localhost or 127.0.0.1, rewrite it to use the tablet's current hostname/port
+      // so it points to the laptop's actual IP address on the local network.
+      if (resolvedUrl.includes("//localhost:") || resolvedUrl.includes("//127.0.0.1:")) {
+        resolvedUrl = resolvedUrl
+          .replace("//localhost:", `//${window.location.hostname}:`)
+          .replace("//127.0.0.1:", `//${window.location.hostname}:`);
+      } else if (resolvedUrl.includes("//localhost/") || resolvedUrl.includes("//127.0.0.1/")) {
+        resolvedUrl = resolvedUrl
+          .replace("//localhost/", `//${window.location.hostname}/`)
+          .replace("//127.0.0.1/", `//${window.location.hostname}/`);
+      }
+
       setStripUrl(resolvedUrl);
       setState("preview");
     });

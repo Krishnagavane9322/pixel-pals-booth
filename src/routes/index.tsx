@@ -162,12 +162,9 @@ function Kiosk() {
       .then((res) => {
         let finalUrl = dataUrl;
         if (res && res.success && res.url) {
-          // Convert relative URL (local dev: /photos/xxx.jpg) to absolute URL
-          // so the tablet can fetch it from the laptop's server over the network
-          const rawUrl = res.url;
-          finalUrl = rawUrl.startsWith("/")
-            ? `${window.location.origin}${rawUrl}`
-            : rawUrl;
+          // Keep relative URL (local dev: /photos/xxx.jpg) relative
+          // so the tablet can resolve it with its own origin (the laptop's network IP)
+          finalUrl = res.url;
           console.log("Photo processed and saved to:", finalUrl);
         } else {
           console.warn("Upload/Save failed, falling back to base64:", res?.error);
