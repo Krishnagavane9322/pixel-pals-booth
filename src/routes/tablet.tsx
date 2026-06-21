@@ -271,8 +271,91 @@ function TabletRemote() {
     setState("camera");
   };
 
-  const handlePrint = () => {
-    triggerEvent("TRIGGER_PRINT");
+  // ── PRINT: exact same logic as the laptop's handlePrint ────────────────────
+  const handlePrint = async () => {
+    if (!stripUrl) return;
+    let printDataUrl = stripUrl;
+
+    if (printLayout !== "4x6") {
+      // Create a 6x4 inch canvas at 300 DPI (1800x1200 px) for landscape printing
+      const img = new Image();
+      const loadPromise = new Promise<void>((resolve) => { img.onload = () => resolve(); });
+      img.src = stripUrl;
+      await loadPromise;
+
+      const canvas = document.createElement("canvas");
+      canvas.width = 1800;
+      canvas.height = 1200;
+      const ctx = canvas.getContext("2d")!;
+
+      // Fill background with white
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, 1800, 1200);
+
+      // First copy (top half) — rotated 90° counter-clockwise
+      ctx.save();
+      ctx.translate(0, 600);
+      ctx.rotate(-Math.PI / 2);
+      ctx.drawImage(img, 0, 0, img.width, img.height);
+      ctx.restore();
+
+      // Second copy (bottom half) — rotated 90° counter-clockwise
+      ctx.save();
+      ctx.translate(0, 1200);
+      ctx.rotate(-Math.PI / 2);
+      ctx.drawImage(img, 0, 0, img.width, img.height);
+      ctx.restore();
+
+      // Dashed cut line in the middle
+      ctx.setLineDash([16, 12]);
+      ctx.strokeStyle = "rgba(180, 180, 180, 0.8)";
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.moveTo(0, 600);
+      ctx.lineTo(1800, 600);
+      ctx.stroke();
+
+      printDataUrl = canvas.toDataURL("image/jpeg", 0.94);
+    }
+
+    const popup = window.open("", "_blank", "width=720,height=480");
+    if (popup) {
+      popup.document.write(`<!DOCTYPE html><html><head><title>ROVI Photo Print</title>
+<style>
+  @page { margin: 0; }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    width: 100%;
+    height: 100%;
+    background: #ffffff;
+    overflow: hidden;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  img {
+    display: block;
+    width: 100vw;
+    height: 100vh;
+    object-fit: fill;
+    page-break-after: avoid;
+    break-after: avoid;
+  }
+</style></head>
+<body>
+  <img id="p" src="${printDataUrl}" />
+  <script>document.getElementById('p').onload=function(){setTimeout(function(){window.focus();window.print();window.close();},400);};<\/script>
+</body></html>`);
+      popup.document.close();
+    } else {
+      const overlay = document.createElement("div");
+      overlay.style.display = "none";
+      const printImg = document.createElement("img");
+      printImg.src = printDataUrl;
+      overlay.appendChild(printImg);
+      document.body.appendChild(overlay);
+      window.print();
+      document.body.removeChild(overlay);
+    }
   };
 
   const handleRetake = () => {
@@ -301,9 +384,11 @@ function TabletRemote() {
 
   const handleQR = async () => {
     if (!stripUrl) return;
-    // If stripUrl is a full URL use it; otherwise build from origin
-    const url = stripUrl.startsWith("http") ? stripUrl : `${window.location.origin}${stripUrl}`;
-    const dataUrl = await QRCode.toDataURL(url, { width: 512, margin: 2, color: { dark: "#000000", light: "#ffffff" } });
+    // Use the base64 data URL directly — works for local dev without cloud storage
+    const qrUrl = stripUrl.startsWith("data:")
+      ? `${window.location.origin}${window.location.pathname}` // generic URL if base64
+      : stripUrl;
+    const dataUrl = await QRCode.toDataURL(qrUrl, { width: 512, margin: 2, color: { dark: "#000000", light: "#ffffff" } });
     setQr(dataUrl);
     setShowQR(true);
   };
