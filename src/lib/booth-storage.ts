@@ -16,6 +16,14 @@ export type Settings = {
   tint: number;
   photoZoom: number;
   theme: "cyberpunk" | "floral";
+  printLayout: "2x6" | "4x6";
+  enableVoice: boolean;
+  eventNameFontFamily: string;
+  eventNameFontSize: number;
+  eventNameColor: string;
+  watermarkFontFamily: string;
+  watermarkFontSize: number;
+  watermarkColor: string;
 };
 
 const DEFAULTS: Settings = {
@@ -36,6 +44,14 @@ const DEFAULTS: Settings = {
   tint: 0,
   photoZoom: 1.0,
   theme: "cyberpunk",
+  printLayout: "2x6",
+  enableVoice: true,
+  eventNameFontFamily: "",
+  eventNameFontSize: 0,
+  eventNameColor: "",
+  watermarkFontFamily: "",
+  watermarkFontSize: 0,
+  watermarkColor: "",
 };
 
 const SETTINGS_KEY = "rovi.settings";

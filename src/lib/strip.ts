@@ -6,14 +6,85 @@ import type { Settings } from "./booth-storage";
 export const STRIP_W = 600;   // 2" @ 300dpi
 export const STRIP_H = 1800;   // 6" @ 300dpi
 
+function getTypography(
+  type: "eventName" | "watermark",
+  settings: Settings,
+  theme: "cyberpunk" | "floral",
+  layout: "2x6" | "4x6"
+) {
+  const isFloral = theme === "floral";
+  const is4x6 = layout === "4x6";
+  
+  if (type === "eventName") {
+    let color = settings.eventNameColor;
+    if (!color) {
+      color = isFloral ? "#e0497f" : "#ffffff";
+    }
+    
+    let family = settings.eventNameFontFamily;
+    if (!family) {
+      family = isFloral 
+        ? "'Brush Script MT', 'Great Vibes', cursive, sans-serif" 
+        : "ui-sans-serif, system-ui, sans-serif";
+    }
+    
+    let size = settings.eventNameFontSize;
+    if (!size) {
+      if (isFloral) {
+        size = 44;
+      } else {
+        size = is4x6 ? 24 : 26;
+      }
+    }
+    
+    const fontStyle = isFloral ? `bold ${size}px` : `600 ${size}px`;
+    const font = `${fontStyle} ${family}`;
+    
+    return { color, font };
+  } else {
+    let color = settings.watermarkColor;
+    if (!color) {
+      color = isFloral ? "#8d5940" : "#7ee7ff";
+    }
+    
+    let family = settings.watermarkFontFamily;
+    if (!family) {
+      family = isFloral 
+        ? "Georgia, serif" 
+        : "ui-sans-serif, system-ui, sans-serif";
+    }
+    
+    let size = settings.watermarkFontSize;
+    if (!size) {
+      if (isFloral) {
+        size = 24;
+      } else {
+        size = is4x6 ? 32 : 36;
+      }
+    }
+    
+    const fontStyle = isFloral ? `italic 600 ${size}px` : `bold ${size}px`;
+    const font = `${fontStyle} ${family}`;
+    
+    return { color, font };
+  }
+}
+
 export async function buildStrip(
   photos: string[],
   settings: Settings,
 ): Promise<string> {
+  const is4x6 = settings.printLayout === "4x6";
   const canvas = document.createElement("canvas");
-  canvas.width = STRIP_W;
-  canvas.height = STRIP_H;
+  canvas.width = is4x6 ? 1800 : STRIP_W;
+  canvas.height = is4x6 ? 1200 : STRIP_H;
   const ctx = canvas.getContext("2d")!;
+
+  const w = canvas.width;
+  const h = canvas.height;
+
+  const eventNameStyle = getTypography("eventName", settings, settings.theme || "cyberpunk", settings.printLayout || "2x6");
+  const watermarkStyle = getTypography("watermark", settings, settings.theme || "cyberpunk", settings.printLayout || "2x6");
 
   // 1. Load background if floral theme, and all photos
   const isFloral = settings.theme === "floral";
@@ -23,120 +94,263 @@ export async function buildStrip(
 
   // 2. Draw background
   if (isFloral && bgImg) {
-    ctx.drawImage(bgImg, 0, 0, STRIP_W, STRIP_H);
+    if (is4x6) {
+      // Draw a soft background gradient first
+      const grad = ctx.createLinearGradient(0, 0, w, h);
+      grad.addColorStop(0, "#fffcfb");
+      grad.addColorStop(1, "#fdecee");
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, w, h);
+
+      // Overlay the floral background image with low opacity
+      ctx.save();
+      ctx.globalAlpha = 0.25;
+      ctx.drawImage(bgImg, 0, 0, w, h);
+      ctx.restore();
+    } else {
+      ctx.drawImage(bgImg, 0, 0, STRIP_W, STRIP_H);
+    }
   } else {
     // Cyberpunk gradient background
-    const grad = ctx.createLinearGradient(0, 0, STRIP_W, STRIP_H);
+    const grad = ctx.createLinearGradient(0, 0, w, h);
     grad.addColorStop(0, "#0b1020");
     grad.addColorStop(1, "#1a0b2e");
     ctx.fillStyle = grad;
-    ctx.fillRect(0, 0, STRIP_W, STRIP_H);
+    ctx.fillRect(0, 0, w, h);
   }
 
-  // 3. Draw Photos stacked vertically
-  const footerH = 200;
-  const photosAreaH = STRIP_H - footerH;
-  const photoH = Math.floor(photosAreaH / 3);
+  if (is4x6) {
+    // --- 4x6 Layout ---
+    // 2x2 grid of 4 photos
+    // Columns: x = 40 (col 0), x = 920 (col 1), width = 840
+    // Rows: y = 40 (row 0), y = 560 (row 1), height = 480
+    // Footer: y = 1040 to 1200
+    const colW = 840;
+    const rowH = 480;
+    const startX = 40;
+    const gapX = 40;
+    const startY = 40;
+    const gapY = 40;
 
-  for (let i = 0; i < 3; i++) {
-    const y = i * photoH;
-    
-    if (isFloral) {
-      // Elegant pink border layout for floral theme
-      const paddingX = 24;
-      const paddingY = 16;
-      const dx = paddingX;
-      const dy = y + paddingY;
-      const dw = STRIP_W - paddingX * 2;
-      const dh = photoH - paddingY * 2;
+    for (let i = 0; i < 4; i++) {
+      const col = i % 2;
+      const row = Math.floor(i / 2);
+      const dx = startX + col * (colW + gapX);
+      const dy = startY + row * (rowH + gapY);
       
-      // Draw cover-cropped photo with zoom
-      drawCover(ctx, imgs[i], dx, dy, dw, dh, settings.photoZoom);
-      
-      // Soft pink outer frame border
-      ctx.strokeStyle = "#ff9ec3";
-      ctx.lineWidth = 6;
-      ctx.strokeRect(dx, dy, dw, dh);
-    } else {
-      // Full bleed for cyberpunk
-      drawCover(ctx, imgs[i], 0, y, STRIP_W, photoH, settings.photoZoom);
+      const img = imgs[i] || imgs[0]; // fallback if less than 4 photos
+      if (!img) continue;
 
-      // Separator line between photos
-      if (i < 2) {
-        ctx.fillStyle = "rgba(0,0,0,0.7)";
-        ctx.fillRect(0, y + photoH - 2, STRIP_W, 4);
+      if (isFloral) {
+        // Draw photo
+        drawCover(ctx, img, dx, dy, colW, rowH, settings.photoZoom);
+        
+        // Soft pink outer frame border
+        ctx.strokeStyle = "#ff9ec3";
+        ctx.lineWidth = 8;
+        ctx.strokeRect(dx, dy, colW, rowH);
+      } else {
+        // Draw photo
+        drawCover(ctx, img, dx, dy, colW, rowH, settings.photoZoom);
+
+        // Neon border for Cyberpunk
+        ctx.save();
+        ctx.strokeStyle = "rgba(0, 245, 255, 0.5)"; // neon cyan border
+        ctx.lineWidth = 6;
+        ctx.strokeRect(dx, dy, colW, rowH);
+        
+        // Add neon glow effect corner lines or shadow
+        ctx.shadowColor = "#00f5ff";
+        ctx.shadowBlur = 10;
+        ctx.strokeStyle = "#00f5ff";
+        ctx.lineWidth = 2;
+        ctx.strokeRect(dx, dy, colW, rowH);
+        ctx.restore();
       }
     }
-  }
 
-  // 4. Draw Footer
-  const footerY = photosAreaH;
+    // Draw 4x6 Footer
+    const footerY = 1040;
+    const footerH = 160;
 
-  if (isFloral) {
-    // Floral text content (bunny decoration is already in the background template)
-    ctx.textAlign = "center";
-    const cx = STRIP_W * 0.64; // center of text block on the right half, avoiding the bunny on the left
-    
-    // Draw event logo if uploaded (above the text)
-    if (settings.logoDataUrl) {
-      try {
-        const logo = await loadImg(settings.logoDataUrl);
-        const lh = 50;
-        const lw = (logo.width / logo.height) * lh;
-        ctx.drawImage(logo, cx - lw / 2, footerY + 12, lw, lh);
-      } catch {}
+    if (isFloral) {
+      // Draw event logo if uploaded on the left
+      if (settings.logoDataUrl) {
+        try {
+          const logo = await loadImg(settings.logoDataUrl);
+          const lh = 80;
+          const lw = (logo.width / logo.height) * lh;
+          ctx.drawImage(logo, 200 - lw / 2, footerY + (footerH - lh) / 2, lw, lh);
+        } catch {}
+      }
+
+      // Draw date on the right
+      ctx.fillStyle = "#8a756a";
+      ctx.font = "500 18px Georgia, serif";
+      ctx.textAlign = "center";
+      ctx.fillText(new Date().toLocaleString(undefined, { dateStyle: "medium" }), 1600, footerY + 90);
+
+      // Centered text
+      ctx.textAlign = "center";
+      const cx = w / 2;
+
+      // Watermark text
+      ctx.fillStyle = watermarkStyle.color;
+      ctx.font = watermarkStyle.font;
+      ctx.fillText(settings.watermark || "Some Bunny Is Turning One", cx, footerY + 55);
+
+      // Event name
+      ctx.fillStyle = eventNameStyle.color;
+      ctx.font = eventNameStyle.font;
+      ctx.fillText(settings.eventName, cx, footerY + 115);
+    } else {
+      // Cyberpunk footer background
+      ctx.fillStyle = "rgba(11,16,32,0.97)";
+      ctx.fillRect(0, footerY, w, footerH);
+
+      // Neon gradient border at top of footer
+      const footerGrad = ctx.createLinearGradient(0, 0, w, 0);
+      footerGrad.addColorStop(0, "#00f5ff");
+      footerGrad.addColorStop(1, "#b44dff");
+      ctx.fillStyle = footerGrad;
+      ctx.fillRect(0, footerY, w, 4);
+
+      // Draw event logo on the left
+      if (settings.logoDataUrl) {
+        try {
+          const logo = await loadImg(settings.logoDataUrl);
+          const lh = 80;
+          const lw = (logo.width / logo.height) * lh;
+          ctx.drawImage(logo, 200 - lw / 2, footerY + (footerH - lh) / 2 + 2, lw, lh);
+        } catch {}
+      }
+
+      // Draw date on the right
+      ctx.fillStyle = "#c9b8ff";
+      ctx.font = "20px ui-sans-serif, system-ui, sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillText(new Date().toLocaleString(), 1600, footerY + 90);
+
+      // Centered text
+      ctx.textAlign = "center";
+      const cx = w / 2;
+
+      // Watermark text
+      ctx.fillStyle = watermarkStyle.color;
+      ctx.font = watermarkStyle.font;
+      ctx.fillText(settings.watermark || "ROVI AI Photo Booth", cx, footerY + 55);
+
+      // Event name
+      ctx.fillStyle = eventNameStyle.color;
+      ctx.font = eventNameStyle.font;
+      ctx.fillText(settings.eventName, cx, footerY + 110);
     }
-
-    // Watermark text
-    ctx.fillStyle = "#8d5940"; // elegant rose wood / deep brown color
-    ctx.font = "italic 600 24px Georgia, serif";
-    ctx.fillText(settings.watermark || "Some Bunny Is Turning One", cx, footerY + 70);
-
-    // Event name
-    ctx.fillStyle = "#e0497f"; // elegant raspberry pink script color
-    ctx.font = "bold 44px 'Brush Script MT', 'Great Vibes', cursive, sans-serif";
-    ctx.fillText(settings.eventName, cx, footerY + 125);
-
-    // Date
-    ctx.fillStyle = "#8a756a"; // soft beige brown print color
-    ctx.font = "500 16px Georgia, serif";
-    ctx.fillText(new Date().toLocaleString(undefined, { dateStyle: "medium" }), cx, footerY + 165);
   } else {
-    // Cyberpunk footer
-    ctx.fillStyle = "rgba(11,16,32,0.97)";
-    ctx.fillRect(0, footerY, STRIP_W, footerH);
+    // --- Original 2x6 Layout ---
+    const footerH = 200;
+    const photosAreaH = STRIP_H - footerH;
+    const photoH = Math.floor(photosAreaH / 3);
 
-    // Neon gradient border at top of footer
-    const footerGrad = ctx.createLinearGradient(0, 0, STRIP_W, 0);
-    footerGrad.addColorStop(0, "#00f5ff");
-    footerGrad.addColorStop(1, "#b44dff");
-    ctx.fillStyle = footerGrad;
-    ctx.fillRect(0, footerY, STRIP_W, 4);
+    for (let i = 0; i < 3; i++) {
+      const y = i * photoH;
+      
+      if (isFloral) {
+        // Elegant pink border layout for floral theme
+        const paddingX = 24;
+        const paddingY = 16;
+        const dx = paddingX;
+        const dy = y + paddingY;
+        const dw = STRIP_W - paddingX * 2;
+        const dh = photoH - paddingY * 2;
+        
+        // Draw cover-cropped photo with zoom
+        drawCover(ctx, imgs[i], dx, dy, dw, dh, settings.photoZoom);
+        
+        // Soft pink outer frame border
+        ctx.strokeStyle = "#ff9ec3";
+        ctx.lineWidth = 6;
+        ctx.strokeRect(dx, dy, dw, dh);
+      } else {
+        // Full bleed for cyberpunk
+        drawCover(ctx, imgs[i], 0, y, STRIP_W, photoH, settings.photoZoom);
 
-    // Logo (centered in strip)
-    if (settings.logoDataUrl) {
-      try {
-        const logo = await loadImg(settings.logoDataUrl);
-        const lh = 70;
-        const lw = (logo.width / logo.height) * lh;
-        ctx.drawImage(logo, (STRIP_W - lw) / 2, footerY + 12, lw, lh);
-      } catch {}
+        // Separator line between photos
+        if (i < 2) {
+          ctx.fillStyle = "rgba(0,0,0,0.7)";
+          ctx.fillRect(0, y + photoH - 2, STRIP_W, 4);
+        }
+      }
     }
 
-    ctx.textAlign = "center";
-    const cx = STRIP_W / 2; // center of strip
+    // Draw Footer
+    const footerY = photosAreaH;
 
-    ctx.fillStyle = "#7ee7ff";
-    ctx.font = "bold 36px ui-sans-serif, system-ui, sans-serif";
-    ctx.fillText(settings.watermark || "ROVI AI Photo Booth", cx, footerY + footerH - 76);
+    if (isFloral) {
+      // Floral text content (bunny decoration is already in the background template)
+      ctx.textAlign = "center";
+      const cx = STRIP_W * 0.64; // center of text block on the right half, avoiding the bunny on the left
+      
+      // Draw event logo if uploaded (above the text)
+      if (settings.logoDataUrl) {
+        try {
+          const logo = await loadImg(settings.logoDataUrl);
+          const lh = 50;
+          const lw = (logo.width / logo.height) * lh;
+          ctx.drawImage(logo, cx - lw / 2, footerY + 12, lw, lh);
+        } catch {}
+      }
 
-    ctx.fillStyle = "#ffffff";
-    ctx.font = "600 26px ui-sans-serif, system-ui, sans-serif";
-    ctx.fillText(settings.eventName, cx, footerY + footerH - 46);
+      // Watermark text
+      ctx.fillStyle = watermarkStyle.color;
+      ctx.font = watermarkStyle.font;
+      ctx.fillText(settings.watermark || "Some Bunny Is Turning One", cx, footerY + 70);
 
-    ctx.fillStyle = "#c9b8ff";
-    ctx.font = "20px ui-sans-serif, system-ui, sans-serif";
-    ctx.fillText(new Date().toLocaleString(), cx, footerY + footerH - 18);
+      // Event name
+      ctx.fillStyle = eventNameStyle.color;
+      ctx.font = eventNameStyle.font;
+      ctx.fillText(settings.eventName, cx, footerY + 125);
+
+      // Date
+      ctx.fillStyle = "#8a756a"; // soft beige brown print color
+      ctx.font = "500 16px Georgia, serif";
+      ctx.fillText(new Date().toLocaleString(undefined, { dateStyle: "medium" }), cx, footerY + 165);
+    } else {
+      // Cyberpunk footer
+      ctx.fillStyle = "rgba(11,16,32,0.97)";
+      ctx.fillRect(0, footerY, STRIP_W, footerH);
+
+      // Neon gradient border at top of footer
+      const footerGrad = ctx.createLinearGradient(0, 0, STRIP_W, 0);
+      footerGrad.addColorStop(0, "#00f5ff");
+      footerGrad.addColorStop(1, "#b44dff");
+      ctx.fillStyle = footerGrad;
+      ctx.fillRect(0, footerY, STRIP_W, 4);
+
+      // Logo (centered in strip)
+      if (settings.logoDataUrl) {
+        try {
+          const logo = await loadImg(settings.logoDataUrl);
+          const lh = 70;
+          const lw = (logo.width / logo.height) * lh;
+          ctx.drawImage(logo, (STRIP_W - lw) / 2, footerY + 12, lw, lh);
+        } catch {}
+      }
+
+      ctx.textAlign = "center";
+      const cx = STRIP_W / 2; // center of strip
+
+      ctx.fillStyle = watermarkStyle.color;
+      ctx.font = watermarkStyle.font;
+      ctx.fillText(settings.watermark || "ROVI AI Photo Booth", cx, footerY + footerH - 76);
+
+      ctx.fillStyle = eventNameStyle.color;
+      ctx.font = eventNameStyle.font;
+      ctx.fillText(settings.eventName, cx, footerY + footerH - 46);
+
+      ctx.fillStyle = "#c9b8ff";
+      ctx.font = "20px ui-sans-serif, system-ui, sans-serif";
+      ctx.fillText(new Date().toLocaleString(), cx, footerY + footerH - 18);
+    }
   }
 
   return canvas.toDataURL("image/jpeg", 0.94);

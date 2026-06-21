@@ -73,7 +73,7 @@ function PhotoPage() {
   return (
     <div className="min-h-screen flex flex-col items-center justify-center gap-5 p-6">
       <h1 className="text-3xl font-black neon-text">Your Photo</h1>
-      <img src={rec.dataUrl} alt="Photo strip" className="max-h-[75vh] rounded-xl shadow-2xl bg-white" />
+      <img src={rec.dataUrl} alt="Photo strip" className="max-h-[75vh] max-w-full rounded-xl shadow-2xl bg-white" />
       <button
         onClick={download}
         className="flex items-center gap-3 bg-primary text-primary-foreground rounded-2xl px-6 py-4 text-xl font-bold"

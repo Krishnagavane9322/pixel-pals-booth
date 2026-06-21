@@ -21,14 +21,11 @@ export const uploadPhoto = createServerFn({ method: "POST" })
       const base64Data = data.dataUrl.split(",")[1];
       const buffer = Buffer.from(base64Data, "base64");
 
-      const blob = await put(`photos/${data.id}.jpg`, buffer, {
+      const filename = `photos/${data.id}___${encodeURIComponent(data.eventName)}___${Date.now()}.jpg`;
+      const blob = await put(filename, buffer, {
         access: "public",
         contentType: "image/jpeg",
         addRandomSuffix: false,
-        metadata: {
-          eventName: data.eventName,
-          createdAt: String(Date.now()),
-        },
       });
 
       return { success: true, url: blob.url };
@@ -55,18 +52,18 @@ export const getCloudPhoto = createServerFn({ method: "GET" })
 
       const blobInfo = blobs[0];
       
-      // Fetch full metadata to get custom fields
       let eventName = "ROVI Live Event";
       let createdAt = blobInfo.uploadedAt ? blobInfo.uploadedAt.getTime() : Date.now();
 
-      try {
-        const meta = await head(blobInfo.url);
-        if (meta.metadata) {
-          if (meta.metadata.eventName) eventName = meta.metadata.eventName;
-          if (meta.metadata.createdAt) createdAt = Number(meta.metadata.createdAt);
+      const parts = blobInfo.pathname.split("___");
+      if (parts.length >= 3) {
+        try {
+          eventName = decodeURIComponent(parts[1]);
+          const timeStr = parts[2].replace(/\.[^/.]+$/, "");
+          createdAt = Number(timeStr);
+        } catch (e) {
+          console.warn("Failed to parse eventName or createdAt from pathname:", e);
         }
-      } catch (metaErr) {
-        console.warn("Could not retrieve custom blob metadata:", metaErr);
       }
 
       return {

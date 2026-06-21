@@ -62,9 +62,20 @@ const getClosestIsoIndex = (val: number) => {
   return closestIdx;
 };
 
-export function AdminPanel({ open, onClose }: { open: boolean; onClose: () => void }) {
+export function AdminPanel({
+  open,
+  onClose,
+  tabletQr,
+  tabletUrl,
+}: {
+  open: boolean;
+  onClose: () => void;
+  tabletQr?: string;
+  tabletUrl?: string;
+}) {
   const [s, setS] = useState<Settings>(() => getSettings());
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
+  const [showTextStyling, setShowTextStyling] = useState(false);
 
   useEffect(() => {
     if (open) {
@@ -166,6 +177,16 @@ export function AdminPanel({ open, onClose }: { open: boolean; onClose: () => vo
                 >
                   <option value="cyberpunk">⚡ Cyberpunk Neon (Dark)</option>
                   <option value="floral">🌸 Pink Floral Birthday (Light)</option>
+                </select>
+              </Field>
+              <Field label="Print Layout">
+                <select
+                  value={s.printLayout || "2x6"}
+                  onChange={(e) => update({ printLayout: e.target.value as "2x6" | "4x6" })}
+                  className="w-full bg-input border border-border rounded-lg px-3 py-2 text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                >
+                  <option value="2x6">🎟️ 2" x 6" Photo Strip (3 Shots)</option>
+                  <option value="4x6">🖼️ 4" x 6" Grid Print (4 Shots)</option>
                 </select>
               </Field>
               <Field label="Camera Device">
@@ -279,10 +300,147 @@ export function AdminPanel({ open, onClose }: { open: boolean; onClose: () => vo
                 displayValue={`${(s.photoZoom || 1.0).toFixed(2)}x`}
                 onChange={(v) => update({ photoZoom: v })}
               />
+
+              {/* Text Typography & Styling Section */}
+              <div className="border border-border/50 rounded-xl p-4 bg-secondary/10 space-y-4">
+                <button
+                  type="button"
+                  onClick={() => setShowTextStyling(!showTextStyling)}
+                  className="flex justify-between items-center w-full text-left font-bold tracking-wider text-accent uppercase text-sm focus:outline-none"
+                >
+                  <span>Text Styling Options</span>
+                  <span className="text-xs">{showTextStyling ? "▼ Hide" : "▶ Show"}</span>
+                </button>
+
+                {showTextStyling && (
+                  <div className="space-y-4 pt-2 border-t border-accent/10 pl-2 border-l border-accent/20">
+                    {/* Event Name styling */}
+                    <div className="space-y-3">
+                      <h4 className="text-sm font-bold text-foreground/90 border-b border-border/30 pb-1">Event Name Styling</h4>
+                      
+                      <Field label="Font Family">
+                        <select
+                          value={s.eventNameFontFamily || ""}
+                          onChange={(e) => update({ eventNameFontFamily: e.target.value })}
+                          className="w-full bg-input border border-border rounded-lg px-3 py-2 text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                        >
+                          <option value="">Auto (Theme Default)</option>
+                          <option value="ui-sans-serif, system-ui, sans-serif">Modern Sans</option>
+                          <option value="Georgia, serif">Classic Serif</option>
+                          <option value="'Brush Script MT', 'Great Vibes', cursive, sans-serif">Elegant Script</option>
+                          <option value="'Courier New', Courier, monospace">Retro Mono</option>
+                          <option value="'Impact', Charcoal, sans-serif">Impact Bold</option>
+                        </select>
+                      </Field>
+
+                      <InputSlider
+                        label="Font Size"
+                        min={0} // 0 represents auto
+                        max={80}
+                        step={2}
+                        value={s.eventNameFontSize || 0}
+                        displayValue={s.eventNameFontSize === 0 ? "Auto" : `${s.eventNameFontSize}px`}
+                        onChange={(v) => update({ eventNameFontSize: v })}
+                      />
+
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="flex-1">
+                          <Field label="Text Color">
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="color"
+                                value={s.eventNameColor || "#ffffff"}
+                                onChange={(e) => update({ eventNameColor: e.target.value })}
+                                className="w-10 h-10 border-0 bg-transparent cursor-pointer"
+                              />
+                              <span className="text-xs text-muted-foreground">{s.eventNameColor || "Auto (Theme Default)"}</span>
+                            </div>
+                          </Field>
+                        </div>
+                        {s.eventNameColor && (
+                          <button
+                            type="button"
+                            onClick={() => update({ eventNameColor: "" })}
+                            className="mt-5 px-3 py-1.5 rounded-lg border border-border bg-secondary hover:bg-input text-xs text-muted-foreground"
+                          >
+                            Reset to Auto
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Watermark styling */}
+                    <div className="space-y-3 pt-3 border-t border-border/20">
+                      <h4 className="text-sm font-bold text-foreground/90 border-b border-border/30 pb-1">Watermark Text Styling</h4>
+                      
+                      <Field label="Font Family">
+                        <select
+                          value={s.watermarkFontFamily || ""}
+                          onChange={(e) => update({ watermarkFontFamily: e.target.value })}
+                          className="w-full bg-input border border-border rounded-lg px-3 py-2 text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                        >
+                          <option value="">Auto (Theme Default)</option>
+                          <option value="ui-sans-serif, system-ui, sans-serif">Modern Sans</option>
+                          <option value="Georgia, serif">Classic Serif</option>
+                          <option value="'Brush Script MT', 'Great Vibes', cursive, sans-serif">Elegant Script</option>
+                          <option value="'Courier New', Courier, monospace">Retro Mono</option>
+                          <option value="'Impact', Charcoal, sans-serif">Impact Bold</option>
+                        </select>
+                      </Field>
+
+                      <InputSlider
+                        label="Font Size"
+                        min={0} // 0 represents auto
+                        max={60}
+                        step={2}
+                        value={s.watermarkFontSize || 0}
+                        displayValue={s.watermarkFontSize === 0 ? "Auto" : `${s.watermarkFontSize}px`}
+                        onChange={(v) => update({ watermarkFontSize: v })}
+                      />
+
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="flex-1">
+                          <Field label="Text Color">
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="color"
+                                value={s.watermarkColor || "#ffffff"}
+                                onChange={(e) => update({ watermarkColor: e.target.value })}
+                                className="w-10 h-10 border-0 bg-transparent cursor-pointer"
+                              />
+                              <span className="text-xs text-muted-foreground">{s.watermarkColor || "Auto (Theme Default)"}</span>
+                            </div>
+                          </Field>
+                        </div>
+                        {s.watermarkColor && (
+                          <button
+                            type="button"
+                            onClick={() => update({ watermarkColor: "" })}
+                            className="mt-5 px-3 py-1.5 rounded-lg border border-border bg-secondary hover:bg-input text-xs text-muted-foreground"
+                          >
+                            Reset to Auto
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
               <div className="flex gap-4">
                 <Toggle label="Enable Print" value={s.enablePrint} onChange={(v) => update({ enablePrint: v })} />
                 <Toggle label="Enable QR" value={s.enableQR} onChange={(v) => update({ enableQR: v })} />
               </div>
+              <Toggle label="Voice Assistant" value={s.enableVoice !== false} onChange={(v) => update({ enableVoice: v })} />
+              
+              {/* Wireless Remote Connection Section */}
+              {tabletQr && (
+                <div className="border border-border/50 rounded-xl p-4 bg-secondary/10 text-center space-y-2 mt-4">
+                  <h3 className="text-sm font-bold tracking-wider text-accent uppercase text-xs">Connect Tablet Remote</h3>
+                  <p className="text-[10px] text-muted-foreground">Scan this QR code with your tablet/phone to control the booth wirelessly.</p>
+                  <img src={tabletQr} alt="Tablet QR" className="w-36 h-36 mx-auto rounded-lg bg-white p-2 border border-border" />
+                  <a href={tabletUrl} target="_blank" rel="noreferrer" className="text-[10px] text-primary hover:underline break-all block">{tabletUrl}</a>
+                </div>
+              )}
             </div>
 
             <button

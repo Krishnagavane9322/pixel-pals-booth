@@ -10,8 +10,17 @@ import {
 } from "@/lib/booth-storage";
 import { buildStrip, captureFromVideo } from "@/lib/strip";
 import { uploadPhoto } from "@/lib/server-storage";
+import { speak, playShutterSound, stopSpeaking } from "@/lib/audio";
+import Pusher from "pusher-js";
+import { sendPusherEvent } from "@/lib/pusher";
+import { z } from "zod";
+
+const searchSchema = z.object({
+  channel: z.string().default("rovi-booth-default"),
+});
 
 export const Route = createFileRoute("/")({
+  validateSearch: (search) => searchSchema.parse(search),
   head: () => ({
     meta: [
       { title: "ROVI AI Photo Booth Kiosk" },
@@ -25,11 +34,24 @@ export const Route = createFileRoute("/")({
 type Screen = "welcome" | "camera" | "processing" | "preview";
 
 function Kiosk() {
+  const { channel } = Route.useSearch();
   const [screen, setScreen] = useState<Screen>("welcome");
   const [photos, setPhotos] = useState<string[]>([]);
   const [strip, setStrip] = useState<{ id: string; dataUrl: string } | null>(null);
   const [adminOpen, setAdminOpen] = useState(false);
   const [settings, setSettings] = useState<Settings>(() => getSettings());
+
+  const wsRef = useRef<Pusher | null>(null);
+  const printTriggerRef = useRef<(() => void) | null>(null);
+  const [tabletQr, setTabletQr] = useState<string>("");
+  const [cameraState, setCameraState] = useState<{ count: number | null; shotIdx: number; flash: boolean }>({
+    count: null,
+    shotIdx: 0,
+    flash: false,
+  });
+
+  const PUSHER_KEY = import.meta.env.VITE_PUSHER_KEY;
+  const PUSHER_CLUSTER = import.meta.env.VITE_PUSHER_CLUSTER;
 
   // Refresh settings whenever we leave admin
   useEffect(() => { if (!adminOpen) setSettings(getSettings()); }, [adminOpen]);
@@ -51,6 +73,73 @@ function Kiosk() {
   }, []);
 
   const start = () => { setPhotos([]); setStrip(null); setScreen("camera"); };
+
+  // Generate tablet QR code
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const url = `${window.location.origin}/tablet?channel=${channel}`;
+      QRCode.toDataURL(url, { width: 256, margin: 2 })
+        .then(setTabletQr)
+        .catch(console.error);
+    }
+  }, [channel]);
+
+  // Connect to Pusher on Laptop Kiosk
+  useEffect(() => {
+    if (!PUSHER_KEY || !PUSHER_CLUSTER) {
+      console.warn("Pusher keys not configured. Wireless remote control is disabled.");
+      return;
+    }
+
+    const pusher = new Pusher(PUSHER_KEY, {
+      cluster: PUSHER_CLUSTER,
+      forceTLS: true,
+    });
+    wsRef.current = pusher;
+
+    const pusherChannel = pusher.subscribe(channel);
+
+    pusherChannel.bind("START_CAPTURE", () => {
+      start();
+    });
+
+    pusherChannel.bind("TRIGGER_PRINT", () => {
+      if (printTriggerRef.current) {
+        printTriggerRef.current();
+      }
+    });
+
+    pusherChannel.bind("GO_HOME", () => {
+      stopSpeaking();
+      setScreen("welcome");
+    });
+
+    return () => {
+      pusherChannel.unbind_all();
+      pusher.unsubscribe(channel);
+      pusher.disconnect();
+    };
+  }, [channel, PUSHER_KEY, PUSHER_CLUSTER]);
+
+  // Broadcast state change back to the tablet remote
+  useEffect(() => {
+    if (!PUSHER_KEY || !PUSHER_CLUSTER) return;
+    sendPusherEvent({
+      data: {
+        channel,
+        event: "STATE_CHANGE",
+        data: { 
+          screen,
+          count: screen === "camera" ? cameraState.count : null,
+          shotIdx: screen === "camera" ? cameraState.shotIdx : 0,
+          flash: screen === "camera" ? cameraState.flash : false,
+          eventName: settings.eventName,
+          printLayout: settings.printLayout,
+        },
+      },
+    }).catch((err) => console.warn("Failed to broadcast state change:", err));
+  }, [screen, cameraState, channel, PUSHER_KEY, PUSHER_CLUSTER]);
+
   const onCapturedAll = useCallback(async (imgs: string[]) => {
     setPhotos(imgs);
     setScreen("processing");
@@ -61,6 +150,17 @@ function Kiosk() {
     // Save locally first (ensures print/download work immediately offline)
     saveStrip({ id, dataUrl, createdAt: Date.now(), eventName: s.eventName });
     setStrip({ id, dataUrl });
+
+    // Broadcast ready photo back to the tablet
+    if (PUSHER_KEY && PUSHER_CLUSTER) {
+      sendPusherEvent({
+        data: {
+          channel,
+          event: "PHOTO_READY",
+          data: { dataUrl },
+        },
+      }).catch((err) => console.warn("Failed to broadcast PHOTO_READY:", err));
+    }
     
     // Attempt Vercel Blob cloud upload in the background
     try {
@@ -78,7 +178,7 @@ function Kiosk() {
     }
     
     setScreen("preview");
-  }, []);
+  }, [channel, PUSHER_KEY, PUSHER_CLUSTER]);
 
   return (
     <div className="fixed inset-0 grid-bg overflow-hidden select-none">
@@ -98,14 +198,34 @@ function Kiosk() {
 
       <AnimatePresence mode="wait">
         {screen === "welcome" && <Welcome key="w" onStart={start} settings={settings} />}
-        {screen === "camera" && <CameraScreen key="c" settings={settings} onDone={onCapturedAll} onCancel={() => setScreen("welcome")} />}
-        {screen === "processing" && <Processing key="p" />}
+        {screen === "camera" && (
+          <CameraScreen 
+            key="c" 
+            settings={settings} 
+            onDone={onCapturedAll} 
+            onCancel={() => { stopSpeaking(); setScreen("welcome"); }} 
+            onStateChange={setCameraState}
+          />
+        )}
+        {screen === "processing" && <Processing key="p" settings={settings} />}
         {screen === "preview" && strip && (
-          <Preview key="pv" strip={strip} settings={settings} onRetake={start} onHome={() => setScreen("welcome")} />
+          <Preview 
+            key="pv" 
+            strip={strip} 
+            settings={settings} 
+            onRetake={() => { stopSpeaking(); start(); }} 
+            onHome={() => { stopSpeaking(); setScreen("welcome"); }} 
+            printTriggerRef={printTriggerRef}
+          />
         )}
       </AnimatePresence>
 
-      <AdminPanel open={adminOpen} onClose={() => setAdminOpen(false)} />
+      <AdminPanel 
+        open={adminOpen} 
+        onClose={() => setAdminOpen(false)} 
+        tabletQr={tabletQr}
+        tabletUrl={typeof window !== "undefined" ? `${window.location.origin}/tablet?channel=${channel}` : ""}
+      />
     </div>
   );
 }
@@ -196,8 +316,13 @@ function getSoftwareCameraFilters(settings: Settings, caps: any) {
 
 /* -------------------- Camera -------------------- */
 function CameraScreen({
-  settings, onDone, onCancel,
-}: { settings: Settings; onDone: (imgs: string[]) => void; onCancel: () => void }) {
+  settings, onDone, onCancel, onStateChange,
+}: {
+  settings: Settings;
+  onDone: (imgs: string[]) => void;
+  onCancel: () => void;
+  onStateChange: (state: { count: number | null; shotIdx: number; flash: boolean }) => void;
+}) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -207,6 +332,14 @@ function CameraScreen({
   const photosRef = useRef<string[]>([]);
   const [capabilities, setCapabilities] = useState<any>({});
   const { cssFilter } = getSoftwareCameraFilters(settings, capabilities);
+
+  useEffect(() => {
+    onStateChange({ count, shotIdx, flash });
+  }, [count, shotIdx, flash]);
+
+  useEffect(() => {
+    speak("Get ready for your photos!", settings.enableVoice !== false);
+  }, [settings.enableVoice]);
 
   useEffect(() => {
     let stream: MediaStream | null = null;
@@ -358,13 +491,15 @@ function CameraScreen({
 
     (async () => {
       await wait(1200); // "Get Ready"
-      for (let i = 0; i < 3; i++) {
+      const numShots = settings.printLayout === "4x6" ? 4 : 3;
+      for (let i = 0; i < numShots; i++) {
         if (cancelled) return;
         setShotIdx(i);
         await runCountdown(i === 0 ? settings.countdownTime : settings.photoGap);
         if (cancelled || !videoRef.current) return;
         const img = captureFromVideo(videoRef.current, cssFilter);
         photosRef.current.push(img);
+        playShutterSound();
         setFlash(true);
         setTimeout(() => setFlash(false), 220);
         await wait(600);
@@ -381,7 +516,7 @@ function CameraScreen({
       className="absolute inset-0 flex flex-col"
     >
       <div className="flex items-center justify-between p-4">
-        <div className="text-sm tracking-widest text-muted-foreground">PHOTO {shotIdx + 1} / 3</div>
+        <div className="text-sm tracking-widest text-muted-foreground">PHOTO {shotIdx + 1} / {settings.printLayout === "4x6" ? 4 : 3}</div>
         <button onClick={onCancel} className="p-2 rounded-full bg-card/60 border border-border"><X /></button>
       </div>
 
@@ -433,7 +568,7 @@ function CameraScreen({
           {count === null ? "Get Ready" : "Smile!"}
         </motion.div>
         <div className="mt-2 flex justify-center gap-2">
-          {[0, 1, 2].map((i) => (
+          {Array.from({ length: settings.printLayout === "4x6" ? 4 : 3 }).map((_, i) => (
             <div key={i}
               className={`h-2 w-10 rounded-full transition ${
                 i < photosRef.current.length ? "bg-primary" : i === shotIdx ? "bg-accent" : "bg-secondary"
@@ -448,7 +583,11 @@ function CameraScreen({
 }
 
 /* -------------------- Processing -------------------- */
-function Processing() {
+function Processing({ settings }: { settings: Settings }) {
+  useEffect(() => {
+    speak("Creating your photo strip, please wait...", settings.enableVoice !== false);
+  }, [settings.enableVoice]);
+
   return (
     <motion.div
       initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
@@ -471,15 +610,27 @@ function Processing() {
 
 /* -------------------- Preview -------------------- */
 function Preview({
-  strip, settings, onRetake, onHome,
+  strip, settings, onRetake, onHome, printTriggerRef,
 }: {
   strip: { id: string; dataUrl: string };
   settings: Settings;
   onRetake: () => void;
   onHome: () => void;
+  printTriggerRef: React.MutableRefObject<(() => void) | null>;
 }) {
   const [qr, setQr] = useState<string | null>(null);
   const [showQR, setShowQR] = useState(false);
+
+  useEffect(() => {
+    speak("Looking great! If you want to print your photos, please click on the print button below.", settings.enableVoice !== false);
+  }, [settings.enableVoice]);
+
+  useEffect(() => {
+    printTriggerRef.current = handlePrint;
+    return () => {
+      printTriggerRef.current = null;
+    };
+  }, [strip, settings]);
 
   const handleDownload = () => {
     const a = document.createElement("a");
@@ -490,48 +641,52 @@ function Preview({
   };
 
   const handlePrint = async () => {
-    // 1. Create a temporary image to load the single strip base64 content
-    const img = new Image();
-    const loadPromise = new Promise((resolve) => {
-      img.onload = resolve;
-    });
-    img.src = strip.dataUrl;
-    await loadPromise;
+    let printDataUrl = strip.dataUrl;
 
-    // 2. Create a 6x4 inch canvas at 300 DPI (1800x1200 px) for landscape printing
-    const canvas = document.createElement("canvas");
-    canvas.width = 1800;
-    canvas.height = 1200;
-    const ctx = canvas.getContext("2d")!;
+    if (settings.printLayout !== "4x6") {
+      // 1. Create a temporary image to load the single strip base64 content
+      const img = new Image();
+      const loadPromise = new Promise((resolve) => {
+        img.onload = resolve;
+      });
+      img.src = strip.dataUrl;
+      await loadPromise;
 
-    // 3. Fill canvas background with solid white
-    ctx.fillStyle = "#ffffff";
-    ctx.fillRect(0, 0, 1800, 1200);
+      // 2. Create a 6x4 inch canvas at 300 DPI (1800x1200 px) for landscape printing
+      const canvas = document.createElement("canvas");
+      canvas.width = 1800;
+      canvas.height = 1200;
+      const ctx = canvas.getContext("2d")!;
 
-    // 4. Draw first copy (top half) rotated 90 degrees counter-clockwise
-    ctx.save();
-    ctx.translate(0, 600);
-    ctx.rotate(-Math.PI / 2);
-    ctx.drawImage(img, 0, 0, img.width, img.height);
-    ctx.restore();
+      // 3. Fill canvas background with solid white
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, 1800, 1200);
 
-    // 5. Draw second copy (bottom half) rotated 90 degrees counter-clockwise
-    ctx.save();
-    ctx.translate(0, 1200);
-    ctx.rotate(-Math.PI / 2);
-    ctx.drawImage(img, 0, 0, img.width, img.height);
-    ctx.restore();
+      // 4. Draw first copy (top half) rotated 90 degrees counter-clockwise
+      ctx.save();
+      ctx.translate(0, 600);
+      ctx.rotate(-Math.PI / 2);
+      ctx.drawImage(img, 0, 0, img.width, img.height);
+      ctx.restore();
 
-    // 6. Draw dashed cut line in the middle (y = 600 px)
-    ctx.setLineDash([16, 12]);
-    ctx.strokeStyle = "rgba(180, 180, 180, 0.8)";
-    ctx.lineWidth = 4;
-    ctx.beginPath();
-    ctx.moveTo(0, 600);
-    ctx.lineTo(1800, 600);
-    ctx.stroke();
+      // 5. Draw second copy (bottom half) rotated 90 degrees counter-clockwise
+      ctx.save();
+      ctx.translate(0, 1200);
+      ctx.rotate(-Math.PI / 2);
+      ctx.drawImage(img, 0, 0, img.width, img.height);
+      ctx.restore();
 
-    const doubleStripDataUrl = canvas.toDataURL("image/jpeg", 0.94);
+      // 6. Draw dashed cut line in the middle (y = 600 px)
+      ctx.setLineDash([16, 12]);
+      ctx.strokeStyle = "rgba(180, 180, 180, 0.8)";
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.moveTo(0, 600);
+      ctx.lineTo(1800, 600);
+      ctx.stroke();
+
+      printDataUrl = canvas.toDataURL("image/jpeg", 0.94);
+    }
 
     const popup = window.open("", "_blank", "width=720,height=480");
     if (popup) {
@@ -557,7 +712,7 @@ function Preview({
   }
 </style></head>
 <body>
-  <img id="p" src="${doubleStripDataUrl}" />
+  <img id="p" src="${printDataUrl}" />
   <script>document.getElementById('p').onload=function(){setTimeout(function(){window.focus();window.print();window.close();},400);};</script>
 </body></html>`);
       popup.document.close();
@@ -567,7 +722,7 @@ function Preview({
       overlay.id = "rovi-print-overlay";
       overlay.style.display = "none";
       const printImg = document.createElement("img");
-      printImg.src = doubleStripDataUrl;
+      printImg.src = printDataUrl;
       overlay.appendChild(printImg);
       document.body.appendChild(overlay);
       window.print();
@@ -597,7 +752,7 @@ function Preview({
         <img
           src={strip.dataUrl}
           alt="Photo strip"
-          className="h-[60vh] lg:h-[85vh] w-auto rounded-xl shadow-2xl neon-border bg-white"
+          className="h-[60vh] lg:h-[85vh] max-w-full w-auto rounded-xl shadow-2xl neon-border bg-white"
         />
       </motion.div>
 
@@ -606,6 +761,20 @@ function Preview({
           <div className="text-3xl font-black neon-text">Looking Great!</div>
           <div className="text-muted-foreground text-sm">{settings.eventName}</div>
         </div>
+        
+        <motion.div
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ delay: 0.3 }}
+          className={`p-3 rounded-2xl text-xs leading-normal border text-center font-medium shadow-md ${
+            settings.theme === "floral"
+              ? "bg-[#ffeff4] border-[#ffc2d6] text-[#b03b60]"
+              : "bg-primary/10 border-primary/20 text-primary"
+          }`}
+        >
+          📢 <strong>Hint:</strong> If you want to print your photos, please click on the <strong>Print Photo</strong> button below!
+        </motion.div>
+
         <BigBtn onClick={onRetake} icon={<RefreshCw />} label="Retake Photos" tone="secondary" />
         {settings.enablePrint && <BigBtn onClick={handlePrint} icon={<Printer />} label="Print Photo" tone="primary" />}
         <BigBtn onClick={handleDownload} icon={<Download />} label="Download" tone="secondary" />
