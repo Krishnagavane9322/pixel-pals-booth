@@ -166,12 +166,14 @@ function TabletRemote() {
     }
 
     const pCh = pusherChannelRef.current;
-    if (!pCh) return;
+    if (!pCh || !connected) return; // wait until Pusher is connected
 
     // Tell the laptop we're ready to receive the video stream
+    console.log("[WebRTC] Sending VIEWER_READY to laptop");
     sendPusherEvent({ data: { channel, event: "VIEWER_READY", data: {} } }).catch(console.warn);
 
     const handleSdpOffer = async (msg: { sdp: { type: RTCSdpType; sdp: string } }) => {
+      console.log("[WebRTC] SDP offer received — creating answer");
       tabletPeerRef.current?.close();
 
       const pc = new RTCPeerConnection({
@@ -182,7 +184,12 @@ function TabletRemote() {
       });
       tabletPeerRef.current = pc;
 
+      pc.onconnectionstatechange = () => {
+        console.log("[WebRTC] Tablet peer state:", pc.connectionState);
+      };
+
       pc.ontrack = (e) => {
+        console.log("[WebRTC] Track received on tablet — attaching to video");
         if (remoteVideoRef.current && e.streams[0]) {
           remoteVideoRef.current.srcObject = e.streams[0];
           remoteVideoRef.current.play().catch(console.warn);
@@ -205,6 +212,7 @@ function TabletRemote() {
         pendingHostCandidatesRef.current = [];
         const answer = await pc.createAnswer();
         await pc.setLocalDescription(answer);
+        console.log("[WebRTC] SDP answer sent to laptop");
         await sendPusherEvent({
           data: {
             channel,
@@ -241,7 +249,7 @@ function TabletRemote() {
       tabletPeerRef.current = null;
       pendingHostCandidatesRef.current = [];
     };
-  }, [state, channel]);
+  }, [state, channel, connected]);
 
   const handleStart = () => {
     triggerEvent("START_CAPTURE");

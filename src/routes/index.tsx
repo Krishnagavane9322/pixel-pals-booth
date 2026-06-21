@@ -370,8 +370,15 @@ function CameraScreen({
     const pCh = pusherChannelRef.current;
     if (!pCh) return;
 
-    const handleViewerReady = async () => {
+    let active = true;
+
+    // Core function: create RTCPeerConnection, add camera tracks, send SDP offer
+    const initiateStream = async () => {
+      if (!active) return;
       peerRef.current?.close();
+      peerRef.current = null;
+      pendingCandidatesRef.current = [];
+
       const stream = streamRef.current;
       if (!stream) return;
 
@@ -385,7 +392,7 @@ function CameraScreen({
       stream.getTracks().forEach((track) => pc.addTrack(track, stream));
 
       pc.onicecandidate = (e) => {
-        if (e.candidate) {
+        if (e.candidate && active) {
           sendPusherEvent({
             data: { channel: channelName, event: "ICE_HOST", data: { candidate: e.candidate.toJSON() } },
           }).catch(console.warn);
@@ -395,6 +402,7 @@ function CameraScreen({
       try {
         const offer = await pc.createOffer();
         await pc.setLocalDescription(offer);
+        if (!active) return;
         await sendPusherEvent({
           data: {
             channel: channelName,
@@ -402,9 +410,24 @@ function CameraScreen({
             data: { sdp: { type: pc.localDescription!.type, sdp: pc.localDescription!.sdp } },
           },
         });
+        console.log("[WebRTC] SDP offer sent to tablet");
       } catch (err) {
         console.warn("WebRTC offer failed:", err);
       }
+    };
+
+    // ── KEY FIX ─────────────────────────────────────────────────────────────
+    // Proactively send the offer as soon as camera is ready.
+    // The previous code only sent on VIEWER_READY, but that signal fires
+    // BEFORE the laptop camera is initialized, so it was always missed.
+    // ────────────────────────────────────────────────────────────────────────
+    initiateStream();
+
+    // Also re-initiate if the tablet connects after the laptop is already ready
+    // (e.g. tablet opened /tablet URL while camera was already live)
+    const handleViewerReady = () => {
+      console.log("[WebRTC] VIEWER_READY received — re-initiating stream");
+      initiateStream();
     };
 
     const handleSdpAnswer = async (msg: { sdp: { type: RTCSdpType; sdp: string } }) => {
@@ -416,6 +439,7 @@ function CameraScreen({
           await pc.addIceCandidate(new RTCIceCandidate(c));
         }
         pendingCandidatesRef.current = [];
+        console.log("[WebRTC] SDP answer set — connection should stream now");
       } catch (err) {
         console.warn("Failed to set remote description on host:", err);
       }
@@ -440,6 +464,7 @@ function CameraScreen({
     pCh.bind("ICE_VIEWER", handleIceViewer);
 
     return () => {
+      active = false;
       pCh.unbind("VIEWER_READY", handleViewerReady);
       pCh.unbind("SDP_ANSWER", handleSdpAnswer);
       pCh.unbind("ICE_VIEWER", handleIceViewer);
