@@ -42,6 +42,7 @@ function Kiosk() {
   const [settings, setSettings] = useState<Settings>(() => getSettings());
 
   const wsRef = useRef<Pusher | null>(null);
+  const pusherChannelRef = useRef<any>(null);
   const printTriggerRef = useRef<(() => void) | null>(null);
   const [tabletQr, setTabletQr] = useState<string>("");
   const [cameraState, setCameraState] = useState<{ count: number | null; shotIdx: number; flash: boolean }>({
@@ -98,6 +99,7 @@ function Kiosk() {
     wsRef.current = pusher;
 
     const pusherChannel = pusher.subscribe(channel);
+    pusherChannelRef.current = pusherChannel;
 
     pusherChannel.bind("START_CAPTURE", () => {
       start();
@@ -118,6 +120,7 @@ function Kiosk() {
       pusherChannel.unbind_all();
       pusher.unsubscribe(channel);
       pusher.disconnect();
+      pusherChannelRef.current = null;
     };
   }, [channel, PUSHER_KEY, PUSHER_CLUSTER]);
 
@@ -222,6 +225,8 @@ function Kiosk() {
             onDone={onCapturedAll} 
             onCancel={() => { stopSpeaking(); setScreen("welcome"); }} 
             onStateChange={setCameraState}
+            pusherChannelRef={pusherChannelRef}
+            channelName={channel}
           />
         )}
         {screen === "processing" && <Processing key="p" settings={settings} />}
@@ -333,14 +338,19 @@ function getSoftwareCameraFilters(settings: Settings, caps: any) {
 
 /* -------------------- Camera -------------------- */
 function CameraScreen({
-  settings, onDone, onCancel, onStateChange,
+  settings, onDone, onCancel, onStateChange, pusherChannelRef, channelName,
 }: {
   settings: Settings;
   onDone: (imgs: string[]) => void;
   onCancel: () => void;
   onStateChange: (state: { count: number | null; shotIdx: number; flash: boolean }) => void;
+  pusherChannelRef: React.MutableRefObject<any>;
+  channelName: string;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const peerRef = useRef<RTCPeerConnection | null>(null);
+  const pendingCandidatesRef = useRef<RTCIceCandidateInit[]>([]);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [count, setCount] = useState<number | null>(null);
@@ -353,6 +363,90 @@ function CameraScreen({
   useEffect(() => {
     onStateChange({ count, shotIdx, flash });
   }, [count, shotIdx, flash]);
+
+  // WebRTC: stream the laptop camera to the tablet in real-time
+  useEffect(() => {
+    if (!ready) return;
+    const pCh = pusherChannelRef.current;
+    if (!pCh) return;
+
+    const handleViewerReady = async () => {
+      peerRef.current?.close();
+      const stream = streamRef.current;
+      if (!stream) return;
+
+      const pc = new RTCPeerConnection({
+        iceServers: [
+          { urls: "stun:stun.l.google.com:19302" },
+          { urls: "stun:stun1.l.google.com:19302" },
+        ],
+      });
+      peerRef.current = pc;
+      stream.getTracks().forEach((track) => pc.addTrack(track, stream));
+
+      pc.onicecandidate = (e) => {
+        if (e.candidate) {
+          sendPusherEvent({
+            data: { channel: channelName, event: "ICE_HOST", data: { candidate: e.candidate.toJSON() } },
+          }).catch(console.warn);
+        }
+      };
+
+      try {
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        await sendPusherEvent({
+          data: {
+            channel: channelName,
+            event: "SDP_OFFER",
+            data: { sdp: { type: pc.localDescription!.type, sdp: pc.localDescription!.sdp } },
+          },
+        });
+      } catch (err) {
+        console.warn("WebRTC offer failed:", err);
+      }
+    };
+
+    const handleSdpAnswer = async (msg: { sdp: { type: RTCSdpType; sdp: string } }) => {
+      const pc = peerRef.current;
+      if (!pc || pc.signalingState === "stable") return;
+      try {
+        await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
+        for (const c of pendingCandidatesRef.current) {
+          await pc.addIceCandidate(new RTCIceCandidate(c));
+        }
+        pendingCandidatesRef.current = [];
+      } catch (err) {
+        console.warn("Failed to set remote description on host:", err);
+      }
+    };
+
+    const handleIceViewer = async (msg: { candidate: RTCIceCandidateInit }) => {
+      const pc = peerRef.current;
+      if (!pc) return;
+      if (!pc.remoteDescription) {
+        pendingCandidatesRef.current.push(msg.candidate);
+        return;
+      }
+      try {
+        await pc.addIceCandidate(new RTCIceCandidate(msg.candidate));
+      } catch (err) {
+        console.warn("Failed to add viewer ICE on host:", err);
+      }
+    };
+
+    pCh.bind("VIEWER_READY", handleViewerReady);
+    pCh.bind("SDP_ANSWER", handleSdpAnswer);
+    pCh.bind("ICE_VIEWER", handleIceViewer);
+
+    return () => {
+      pCh.unbind("VIEWER_READY", handleViewerReady);
+      pCh.unbind("SDP_ANSWER", handleSdpAnswer);
+      pCh.unbind("ICE_VIEWER", handleIceViewer);
+      peerRef.current?.close();
+      peerRef.current = null;
+    };
+  }, [ready, channelName]);
 
   useEffect(() => {
     speak("Get ready for your photos!", settings.enableVoice !== false);
@@ -401,6 +495,7 @@ function CameraScreen({
         if (!video) return;
 
         video.srcObject = stream;
+        streamRef.current = stream;
 
         // Query capabilities and apply constraints
         const track = stream.getVideoTracks()[0];

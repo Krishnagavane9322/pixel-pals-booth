@@ -46,6 +46,10 @@ function TabletRemote() {
   const [connected, setConnected] = useState(false);
   const [configError, setConfigError] = useState(false);
   const pusherRef = useRef<Pusher | null>(null);
+  const pusherChannelRef = useRef<any>(null);
+  const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
+  const tabletPeerRef = useRef<RTCPeerConnection | null>(null);
+  const pendingHostCandidatesRef = useRef<RTCIceCandidateInit[]>([]);
 
   const PUSHER_KEY = import.meta.env.VITE_PUSHER_KEY;
   const PUSHER_CLUSTER = import.meta.env.VITE_PUSHER_CLUSTER;
@@ -70,6 +74,7 @@ function TabletRemote() {
     pusherRef.current = pusher;
 
     const pusherChannel = pusher.subscribe(channel);
+    pusherChannelRef.current = pusherChannel;
 
     pusher.connection.bind("state_change", (states: { current: string }) => {
       setConnected(states.current === "connected");
@@ -132,6 +137,7 @@ function TabletRemote() {
       pusherChannel.unbind_all();
       pusher.unsubscribe(channel);
       pusher.disconnect();
+      pusherChannelRef.current = null;
     };
   }, [channel, PUSHER_KEY, PUSHER_CLUSTER]);
 
@@ -148,6 +154,94 @@ function TabletRemote() {
       console.error(`Failed to trigger remote event ${event}:`, err);
     }
   };
+
+  // WebRTC: receive live camera stream from the laptop
+  useEffect(() => {
+    if (state !== "camera") {
+      tabletPeerRef.current?.close();
+      tabletPeerRef.current = null;
+      pendingHostCandidatesRef.current = [];
+      if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
+      return;
+    }
+
+    const pCh = pusherChannelRef.current;
+    if (!pCh) return;
+
+    // Tell the laptop we're ready to receive the video stream
+    sendPusherEvent({ data: { channel, event: "VIEWER_READY", data: {} } }).catch(console.warn);
+
+    const handleSdpOffer = async (msg: { sdp: { type: RTCSdpType; sdp: string } }) => {
+      tabletPeerRef.current?.close();
+
+      const pc = new RTCPeerConnection({
+        iceServers: [
+          { urls: "stun:stun.l.google.com:19302" },
+          { urls: "stun:stun1.l.google.com:19302" },
+        ],
+      });
+      tabletPeerRef.current = pc;
+
+      pc.ontrack = (e) => {
+        if (remoteVideoRef.current && e.streams[0]) {
+          remoteVideoRef.current.srcObject = e.streams[0];
+          remoteVideoRef.current.play().catch(console.warn);
+        }
+      };
+
+      pc.onicecandidate = (e) => {
+        if (e.candidate) {
+          sendPusherEvent({
+            data: { channel, event: "ICE_VIEWER", data: { candidate: e.candidate.toJSON() } },
+          }).catch(console.warn);
+        }
+      };
+
+      try {
+        await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
+        for (const c of pendingHostCandidatesRef.current) {
+          await pc.addIceCandidate(new RTCIceCandidate(c));
+        }
+        pendingHostCandidatesRef.current = [];
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+        await sendPusherEvent({
+          data: {
+            channel,
+            event: "SDP_ANSWER",
+            data: { sdp: { type: pc.localDescription!.type, sdp: pc.localDescription!.sdp } },
+          },
+        });
+      } catch (err) {
+        console.warn("WebRTC answer failed on tablet:", err);
+      }
+    };
+
+    const handleIceHost = async (msg: { candidate: RTCIceCandidateInit }) => {
+      const pc = tabletPeerRef.current;
+      if (!pc) return;
+      if (!pc.remoteDescription) {
+        pendingHostCandidatesRef.current.push(msg.candidate);
+        return;
+      }
+      try {
+        await pc.addIceCandidate(new RTCIceCandidate(msg.candidate));
+      } catch (err) {
+        console.warn("Failed to add host ICE on tablet:", err);
+      }
+    };
+
+    pCh.bind("SDP_OFFER", handleSdpOffer);
+    pCh.bind("ICE_HOST", handleIceHost);
+
+    return () => {
+      pCh.unbind("SDP_OFFER", handleSdpOffer);
+      pCh.unbind("ICE_HOST", handleIceHost);
+      tabletPeerRef.current?.close();
+      tabletPeerRef.current = null;
+      pendingHostCandidatesRef.current = [];
+    };
+  }, [state, channel]);
 
   const handleStart = () => {
     triggerEvent("START_CAPTURE");
@@ -270,15 +364,23 @@ function TabletRemote() {
               </button>
             </div>
 
-            {/* Camera view area — mirrors the laptop neon-border box */}
+            {/* Camera view area — live WebRTC stream from laptop */}
             <div className="flex-1 relative flex items-center justify-center px-4">
-              <div className="relative w-full max-w-3xl aspect-[4/3] rounded-3xl overflow-hidden neon-border bg-black flex items-center justify-center">
+              <div className="relative w-full max-w-3xl aspect-[4/3] rounded-3xl overflow-hidden neon-border bg-black">
 
-                {/* Background grid pattern as placeholder for camera */}
+                {/* Live camera stream from laptop via WebRTC */}
+                <video
+                  ref={(el) => { remoteVideoRef.current = el; }}
+                  autoPlay
+                  playsInline
+                  muted
+                  className="absolute inset-0 w-full h-full object-cover z-10"
+                  style={{ transform: "scaleX(-1)" }}
+                />
+
+                {/* Fallback shown behind video until stream connects */}
                 <div className="absolute inset-0 grid-bg opacity-40" />
-
-                {/* Camera icon placeholder */}
-                <div className="flex flex-col items-center gap-3 text-muted-foreground z-10">
+                <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-muted-foreground z-0">
                   <motion.div
                     animate={{ scale: [1, 1.08, 1], opacity: [0.5, 1, 0.5] }}
                     transition={{ duration: 2, repeat: Infinity }}
@@ -286,7 +388,7 @@ function TabletRemote() {
                   >
                     📷
                   </motion.div>
-                  <p className="text-sm font-medium">Camera active on laptop</p>
+                  <p className="text-sm font-medium">Connecting to camera…</p>
                 </div>
 
                 {/* Mirrored countdown overlay */}
