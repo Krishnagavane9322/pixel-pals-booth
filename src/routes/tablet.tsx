@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { z } from "zod";
 import Pusher from "pusher-js";
 import { sendPusherEvent } from "@/lib/pusher";
+import { getStripData } from "@/lib/server-storage";
 import { motion, AnimatePresence } from "framer-motion";
 import { Printer, RefreshCw, Download, QrCode, WifiOff, AlertTriangle } from "lucide-react";
 import { RobotFace } from "@/components/RobotFace";
@@ -105,13 +106,27 @@ function TabletRemote() {
       if (msg.enableQR !== undefined) setEnableQR(msg.enableQR);
     });
 
-    pusherChannel.bind("PHOTO_READY", (msg: { id?: string; dataUrl: string }) => {
+    pusherChannel.bind("PHOTO_READY", async (msg: { id?: string; dataUrl: string }) => {
+      // Best approach: fetch the strip as base64 directly from the server function.
+      // This is more reliable than resolving a static file URL over the local network.
+      if (msg.id) {
+        try {
+          const res = await getStripData({ data: msg.id });
+          if (res && res.success && res.dataUrl) {
+            setStripUrl(res.dataUrl);
+            setState("preview");
+            return;
+          }
+        } catch (err) {
+          console.warn("[PHOTO_READY] getStripData failed, falling back to URL:", err);
+        }
+      }
+
+      // Fallback: resolve URL (works when photos are in Vercel Blob cloud storage)
       let resolvedUrl = msg.dataUrl.startsWith("/")
         ? `${window.location.origin}${msg.dataUrl}`
         : msg.dataUrl;
 
-      // If the URL points to localhost or 127.0.0.1, rewrite it to use the tablet's current hostname/port
-      // so it points to the laptop's actual IP address on the local network.
       if (resolvedUrl.includes("//localhost:") || resolvedUrl.includes("//127.0.0.1:")) {
         resolvedUrl = resolvedUrl
           .replace("//localhost:", `//${window.location.hostname}:`)

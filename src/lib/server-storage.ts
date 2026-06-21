@@ -54,6 +54,27 @@ export const uploadPhoto = createServerFn({ method: "POST" })
     }
   });
 
+// Server function to get strip as base64 data URL (for tablet preview)
+// This is more reliable than serving from /public/photos/ directly
+export const getStripData = createServerFn({ method: "GET" })
+  .validator((id: string) => id)
+  .handler(async ({ data: id }) => {
+    try {
+      const filename = `${id}.jpg`;
+      const dir = path.join(process.cwd(), "public", "photos");
+      const filePath = path.join(dir, filename);
+      if (fs.existsSync(filePath)) {
+        const buffer = await fs.promises.readFile(filePath);
+        const base64 = buffer.toString("base64");
+        return { success: true, dataUrl: `data:image/jpeg;base64,${base64}` };
+      }
+      return { success: false, error: "File not found" };
+    } catch (err: any) {
+      console.error("Failed to read strip file:", err);
+      return { success: false, error: err.message };
+    }
+  });
+
 // Server function to fetch photo strip from Vercel Blob
 export const getCloudPhoto = createServerFn({ method: "GET" })
   .validator((id: string) => id)
