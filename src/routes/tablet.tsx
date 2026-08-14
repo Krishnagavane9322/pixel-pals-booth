@@ -63,14 +63,15 @@ function TabletRemote() {
   const loadStripForTablet = async (id?: string | null, url?: string | null) => {
     if (id) setCurrentStripId(id);
 
-    // 1. If a real cloud URL was provided (Vercel Blob), use it directly
-    if (url && !url.startsWith("/") && !url.startsWith("data:") && url.length > 0) {
+    // 1. If a URL was provided (cloud or LAN), use it directly to load the image
+    //    This is the primary path: laptop sends http://192.168.x.x:3001/photos/<id>.jpg
+    if (url && url.startsWith("http") && url.length > 10) {
       setStripUrl(url);
       return;
     }
 
-    // 2. Fetch base64 via server function — works on both Vercel (in-memory) and local dev (disk)
-    // Retry up to 10 times with 400ms interval to allow server to finish processing
+    // 2. Fallback: fetch base64 via server function
+    //    Works when: in-memory store has data (storeStripData ran) OR file is on disk
     if (id) {
       for (let attempt = 0; attempt < 10; attempt++) {
         try {
@@ -293,17 +294,40 @@ function TabletRemote() {
     setState("camera");
   };
 
+  // Helper: convert an http/https URL to a base64 data URL by fetching as blob
+  const toDataUrl = async (src: string): Promise<string> => {
+    if (src.startsWith("data:")) return src;
+    const resp = await fetch(src);
+    const blob = await resp.blob();
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+  };
+
   // ── PRINT: exact same logic as the laptop's handlePrint ────────────────────
   const handlePrint = async () => {
-    triggerEvent("TRIGGER_PRINT", { id: currentStripId, dataUrl: stripUrl });
+    triggerEvent("TRIGGER_PRINT", { id: currentStripId });
     if (!stripUrl) return;
-    let printDataUrl = stripUrl;
+
+    // Always convert to base64 first to avoid CORS tainted canvas errors
+    let dataUrl: string;
+    try {
+      dataUrl = await toDataUrl(stripUrl);
+    } catch (err) {
+      console.error("[Tablet] Failed to fetch strip for print:", err);
+      return;
+    }
+
+    let printDataUrl = dataUrl;
 
     if (printLayout !== "4x6") {
       // Create a 6x4 inch canvas at 300 DPI (1800x1200 px) for landscape printing
       const img = new Image();
       const loadPromise = new Promise<void>((resolve) => { img.onload = () => resolve(); });
-      img.src = stripUrl;
+      img.src = dataUrl;
       await loadPromise;
 
       const canvas = document.createElement("canvas");
@@ -357,6 +381,7 @@ function TabletRemote() {
 
   const handleRetake = () => {
     triggerEvent("START_CAPTURE");
+
     setState("camera");
     setStripUrl(null);
     setQr(null);
@@ -374,28 +399,36 @@ function TabletRemote() {
   const handleDownload = async () => {
     if (!stripUrl) return;
 
-    // Mobile Web Share API for iOS Safari & Android Chrome
-    if (typeof navigator !== "undefined" && navigator.share && stripUrl.startsWith("data:")) {
-      try {
-        const blob = await (await fetch(stripUrl)).blob();
-        const file = new File([blob], `rovi-photo-${currentStripId || "strip"}.jpg`, { type: "image/jpeg" });
-        if (navigator.canShare && navigator.canShare({ files: [file] })) {
+    try {
+      // Always fetch as blob — works for both data: URLs and http:// LAN/cloud URLs
+      const blob = await (await fetch(stripUrl)).blob();
+      const file = new File([blob], `rovi-photo-${currentStripId || "strip"}.jpg`, { type: "image/jpeg" });
+
+      // Mobile Web Share API — best on iOS Safari & Android Chrome
+      if (typeof navigator !== "undefined" && navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+        try {
           await navigator.share({
             title: "My ROVI Photo Strip",
             files: [file],
           });
           return;
+        } catch (e) {
+          console.warn("Share cancelled or unsupported:", e);
         }
-      } catch (e) {
-        console.warn("Share cancelled or unsupported:", e);
       }
-    }
 
-    const a = document.createElement("a");
-    a.href = stripUrl;
-    a.download = `rovi-photo-${currentStripId || "strip"}.jpg`;
-    a.target = "_blank";
-    a.click();
+      // Fallback: create object URL and trigger anchor download
+      const objectUrl = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = objectUrl;
+      a.download = `rovi-photo-${currentStripId || "strip"}.jpg`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(objectUrl), 5000);
+    } catch (err) {
+      console.error("[Tablet] Download failed:", err);
+      // Last resort: open in new tab
+      window.open(stripUrl, "_blank");
+    }
   };
 
   const handleQR = async () => {

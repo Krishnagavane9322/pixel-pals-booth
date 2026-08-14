@@ -162,57 +162,66 @@ function Kiosk() {
     const id = uid();
     const s = getSettings();
     
-    // Save locally first (ensures print/download work immediately offline)
+    // Save locally first (ensures print/download work immediately on laptop)
     saveStrip({ id, dataUrl, createdAt: Date.now(), eventName: s.eventName });
     setStrip({ id, dataUrl });
 
-    // Transition the laptop to preview immediately (non-blocking)
+    // Transition the laptop to preview immediately
     setScreen("preview");
 
-    // Store base64 server-side immediately so tablet can retrieve it via getStripData
-    // This is critical for Vercel deployments where local disk is not accessible from tablet
+    // Also store base64 in server memory as an extra backup for getStripData
     storeStripData({ data: { id, dataUrl } }).catch((err) =>
       console.warn("Failed to store strip data on server:", err)
     );
 
-    // Perform upload/save in the background
+    // Save photo to disk AND broadcast PHOTO_READY once the file is on disk
+    // The tablet will load the image via the local network URL
     uploadPhoto({ data: { id, dataUrl, eventName: s.eventName } })
       .then((res) => {
-        let finalUrl = null as string | null;
+        // Build the URL the tablet can actually fetch:
+        // - Cloud URL (Vercel Blob): works from anywhere
+        // - Local URL using window.location.origin: works on local LAN (same server)
+        let photoUrl: string;
         if (res && res.success && res.url && !res.url.startsWith("/photos/")) {
-          // Got a real cloud URL (Vercel Blob) — include it for tablets on different networks
-          finalUrl = res.url;
-          console.log("Photo uploaded to cloud:", finalUrl);
+          // Cloud Vercel Blob URL — accessible from anywhere
+          photoUrl = res.url;
+          console.log("[Laptop] Photo uploaded to cloud:", photoUrl);
         } else {
-          console.warn("No cloud URL — tablet will use getStripData (server in-memory store):", res?.error);
+          // Local dev: file saved to public/photos/ — build an absolute URL
+          // using the laptop's actual IP so tablet on same LAN can load it
+          const origin = typeof window !== "undefined" ? window.location.origin : "";
+          photoUrl = `${origin}/photos/${id}.jpg`;
+          console.log("[Laptop] Photo saved locally, broadcasting LAN URL:", photoUrl);
         }
 
-        // Broadcast PHOTO_READY — only send ID (tablet will fetch full image via getStripData)
-        // Never send base64 or local paths over Pusher
+        // Broadcast PHOTO_READY with the absolute accessible URL
+        // File is guaranteed to be on disk at this point
         if (PUSHER_KEY && PUSHER_CLUSTER) {
           sendPusherEvent({
             data: {
               channel,
               event: "PHOTO_READY",
-              data: { id, dataUrl: finalUrl || "" },
+              data: { id, dataUrl: photoUrl },
             },
           }).catch((err) => console.warn("Failed to broadcast PHOTO_READY:", err));
         }
       })
       .catch((err) => {
         console.error("Failed to upload/save photo:", err);
-        // Still broadcast PHOTO_READY so tablet can try getStripData
+        // Fallback: send local URL anyway (file might still be saved)
         if (PUSHER_KEY && PUSHER_CLUSTER) {
+          const origin = typeof window !== "undefined" ? window.location.origin : "";
           sendPusherEvent({
             data: {
               channel,
               event: "PHOTO_READY",
-              data: { id, dataUrl: "" },
+              data: { id, dataUrl: `${origin}/photos/${id}.jpg` },
             },
           }).catch((e) => console.warn(e));
         }
       });
   }, [channel, PUSHER_KEY, PUSHER_CLUSTER]);
+
 
   return (
     <div className="fixed inset-0 grid-bg overflow-hidden select-none">
