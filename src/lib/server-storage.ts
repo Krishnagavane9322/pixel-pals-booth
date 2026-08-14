@@ -1,5 +1,5 @@
 import { createServerFn } from "@tanstack/react-start";
-import { put, list, head } from "@vercel/blob";
+import { put, list } from "@vercel/blob";
 import fs from "fs";
 import path from "path";
 
@@ -8,6 +8,33 @@ export type CloudPhotoData = {
   eventName: string;
   createdAt: number;
 };
+
+// ── Server-side in-memory strip store ──────────────────────────────────────
+// Stores base64 data URLs keyed by photo ID so the tablet can retrieve them
+// from the Vercel server without hitting local disk or Pusher payload limits.
+// TTL: 30 minutes per entry.
+type StripEntry = { dataUrl: string; createdAt: number };
+const stripStore = new Map<string, StripEntry>();
+
+// Cleanup entries older than 30 minutes periodically
+const STRIP_TTL_MS = 30 * 60 * 1000;
+function cleanupStripStore() {
+  const now = Date.now();
+  for (const [key, entry] of stripStore.entries()) {
+    if (now - entry.createdAt > STRIP_TTL_MS) {
+      stripStore.delete(key);
+    }
+  }
+}
+
+// ── Server function to store photo strip base64 on server ──────────────────
+export const storeStripData = createServerFn({ method: "POST" })
+  .validator((d: { id: string; dataUrl: string }) => d)
+  .handler(async ({ data }) => {
+    cleanupStripStore();
+    stripStore.set(data.id, { dataUrl: data.dataUrl, createdAt: Date.now() });
+    return { success: true };
+  });
 
 // Server function to upload photo strip to Vercel Blob
 export const uploadPhoto = createServerFn({ method: "POST" })
@@ -55,10 +82,17 @@ export const uploadPhoto = createServerFn({ method: "POST" })
   });
 
 // Server function to get strip as base64 data URL (for tablet preview)
-// This is more reliable than serving from /public/photos/ directly
+// Checks in-memory store first (works on Vercel), then falls back to local disk
 export const getStripData = createServerFn({ method: "GET" })
   .validator((id: string) => id)
   .handler(async ({ data: id }) => {
+    // 1. Check in-memory store first (works on Vercel deployment)
+    const inMemory = stripStore.get(id);
+    if (inMemory) {
+      return { success: true, dataUrl: inMemory.dataUrl };
+    }
+
+    // 2. Fall back to local disk (works in local dev)
     try {
       const filename = `${id}.jpg`;
       const dir = path.join(process.cwd(), "public", "photos");

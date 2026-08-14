@@ -61,9 +61,18 @@ function TabletRemote() {
   const numShots = printLayout === "4x6" ? 4 : 3;
 
   const loadStripForTablet = async (id?: string | null, url?: string | null) => {
+    if (id) setCurrentStripId(id);
+
+    // 1. If a real cloud URL was provided (Vercel Blob), use it directly
+    if (url && !url.startsWith("/") && !url.startsWith("data:") && url.length > 0) {
+      setStripUrl(url);
+      return;
+    }
+
+    // 2. Fetch base64 via server function — works on both Vercel (in-memory) and local dev (disk)
+    // Retry up to 10 times with 400ms interval to allow server to finish processing
     if (id) {
-      setCurrentStripId(id);
-      for (let attempt = 0; attempt < 5; attempt++) {
+      for (let attempt = 0; attempt < 10; attempt++) {
         try {
           const res = await getStripData({ data: id });
           if (res && res.success && res.dataUrl) {
@@ -73,26 +82,9 @@ function TabletRemote() {
         } catch (err) {
           console.warn(`[Tablet] getStripData attempt ${attempt + 1} failed:`, err);
         }
-        await new Promise((r) => setTimeout(r, 300));
+        await new Promise((r) => setTimeout(r, 400));
       }
-    }
-
-    if (url) {
-      let resolvedUrl = url.startsWith("/")
-        ? `${window.location.origin}${url}`
-        : url;
-
-      if (resolvedUrl.includes("//localhost:") || resolvedUrl.includes("//127.0.0.1:")) {
-        resolvedUrl = resolvedUrl
-          .replace("//localhost:", `//${window.location.hostname}:`)
-          .replace("//127.0.0.1:", `//${window.location.hostname}:`);
-      } else if (resolvedUrl.includes("//localhost/") || resolvedUrl.includes("//127.0.0.1/")) {
-        resolvedUrl = resolvedUrl
-          .replace("//localhost/", `//${window.location.hostname}/`)
-          .replace("//127.0.0.1/", `//${window.location.hostname}/`);
-      }
-
-      setStripUrl(resolvedUrl);
+      console.error("[Tablet] Failed to load strip after 10 attempts for id:", id);
     }
   };
 

@@ -9,7 +9,7 @@ import {
   getSettings, saveStrip, uid, logPrint, logDownload, type Settings,
 } from "@/lib/booth-storage";
 import { buildStrip, captureFromVideo } from "@/lib/strip";
-import { uploadPhoto } from "@/lib/server-storage";
+import { uploadPhoto, storeStripData } from "@/lib/server-storage";
 import { speak, playShutterSound, stopSpeaking } from "@/lib/audio";
 import Pusher from "pusher-js";
 import { sendPusherEvent } from "@/lib/pusher";
@@ -127,9 +127,12 @@ function Kiosk() {
   // Broadcast state change back to the tablet remote
   useEffect(() => {
     if (!PUSHER_KEY || !PUSHER_CLUSTER) return;
-    const currentStripUrl = strip?.dataUrl && !strip.dataUrl.startsWith("data:") 
-      ? strip.dataUrl 
-      : (strip?.id ? `/photos/${strip.id}.jpg` : null);
+    // Only pass a stripUrl if it's a real cloud URL (Vercel Blob).
+    // Local /photos/ paths are inaccessible from the tablet on Vercel deployment.
+    // Tablet will use stripId + getStripData server function to fetch the image.
+    const currentStripUrl = strip?.dataUrl && !strip.dataUrl.startsWith("data:") && !strip.dataUrl.startsWith("/")
+      ? strip.dataUrl
+      : null;
 
     sendPusherEvent({
       data: {
@@ -166,39 +169,45 @@ function Kiosk() {
     // Transition the laptop to preview immediately (non-blocking)
     setScreen("preview");
 
+    // Store base64 server-side immediately so tablet can retrieve it via getStripData
+    // This is critical for Vercel deployments where local disk is not accessible from tablet
+    storeStripData({ data: { id, dataUrl } }).catch((err) =>
+      console.warn("Failed to store strip data on server:", err)
+    );
+
     // Perform upload/save in the background
     uploadPhoto({ data: { id, dataUrl, eventName: s.eventName } })
       .then((res) => {
-        let finalUrl = `/photos/${id}.jpg`;
-        if (res && res.success && res.url) {
+        let finalUrl = null as string | null;
+        if (res && res.success && res.url && !res.url.startsWith("/photos/")) {
+          // Got a real cloud URL (Vercel Blob) — include it for tablets on different networks
           finalUrl = res.url;
-          console.log("Photo processed and saved to:", finalUrl);
+          console.log("Photo uploaded to cloud:", finalUrl);
         } else {
-          console.warn("Upload/Save failed, using local photos path:", res?.error);
+          console.warn("No cloud URL — tablet will use getStripData (server in-memory store):", res?.error);
         }
 
-        // Never send large base64 data over Pusher (max 10KB payload)
-        const photoPayloadUrl = finalUrl.startsWith("data:") ? `/photos/${id}.jpg` : finalUrl;
-
-        // Broadcast ready photo back to the tablet
+        // Broadcast PHOTO_READY — only send ID (tablet will fetch full image via getStripData)
+        // Never send base64 or local paths over Pusher
         if (PUSHER_KEY && PUSHER_CLUSTER) {
           sendPusherEvent({
             data: {
               channel,
               event: "PHOTO_READY",
-              data: { id, dataUrl: photoPayloadUrl },
+              data: { id, dataUrl: finalUrl || "" },
             },
           }).catch((err) => console.warn("Failed to broadcast PHOTO_READY:", err));
         }
       })
       .catch((err) => {
         console.error("Failed to upload/save photo:", err);
+        // Still broadcast PHOTO_READY so tablet can try getStripData
         if (PUSHER_KEY && PUSHER_CLUSTER) {
           sendPusherEvent({
             data: {
               channel,
               event: "PHOTO_READY",
-              data: { id, dataUrl: `/photos/${id}.jpg` },
+              data: { id, dataUrl: "" },
             },
           }).catch((e) => console.warn(e));
         }
