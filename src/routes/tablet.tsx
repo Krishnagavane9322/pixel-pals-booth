@@ -47,6 +47,7 @@ function TabletRemote() {
   const [configError, setConfigError] = useState(false);
   const [snapshotUrl, setSnapshotUrl] = useState<string | null>(null);
   const [hasWebRtcVideo, setHasWebRtcVideo] = useState(false);
+  const [currentStripId, setCurrentStripId] = useState<string | null>(null);
 
   const pusherRef = useRef<Pusher | null>(null);
   const pusherChannelRef = useRef<any>(null);
@@ -61,14 +62,18 @@ function TabletRemote() {
 
   const loadStripForTablet = async (id?: string | null, url?: string | null) => {
     if (id) {
-      try {
-        const res = await getStripData({ data: id });
-        if (res && res.success && res.dataUrl) {
-          setStripUrl(res.dataUrl);
-          return;
+      setCurrentStripId(id);
+      for (let attempt = 0; attempt < 5; attempt++) {
+        try {
+          const res = await getStripData({ data: id });
+          if (res && res.success && res.dataUrl) {
+            setStripUrl(res.dataUrl);
+            return;
+          }
+        } catch (err) {
+          console.warn(`[Tablet] getStripData attempt ${attempt + 1} failed:`, err);
         }
-      } catch (err) {
-        console.warn("[Tablet] getStripData failed, trying URL fallback:", err);
+        await new Promise((r) => setTimeout(r, 300));
       }
     }
 
@@ -137,6 +142,7 @@ function TabletRemote() {
       if (msg.printLayout) setPrintLayout(msg.printLayout);
       if (msg.enablePrint !== undefined) setEnablePrint(msg.enablePrint);
       if (msg.enableQR !== undefined) setEnableQR(msg.enableQR);
+      if (msg.stripId) setCurrentStripId(msg.stripId);
 
       if (msg.screen === "preview" && (msg.stripId || msg.stripUrl)) {
         loadStripForTablet(msg.stripId, msg.stripUrl);
@@ -145,6 +151,7 @@ function TabletRemote() {
 
     pusherChannel.bind("PHOTO_READY", async (msg: { id?: string; dataUrl: string }) => {
       setState("preview");
+      if (msg.id) setCurrentStripId(msg.id);
       await loadStripForTablet(msg.id, msg.dataUrl);
     });
 
@@ -157,6 +164,7 @@ function TabletRemote() {
     pusherChannel.bind("RESET", () => {
       setState("welcome");
       setStripUrl(null);
+      setCurrentStripId(null);
       setQr(null);
       setShowQR(false);
       setSnapshotUrl(null);
@@ -295,7 +303,7 @@ function TabletRemote() {
 
   // ── PRINT: exact same logic as the laptop's handlePrint ────────────────────
   const handlePrint = async () => {
-    triggerEvent("TRIGGER_PRINT");
+    triggerEvent("TRIGGER_PRINT", { id: currentStripId, dataUrl: stripUrl });
     if (!stripUrl) return;
     let printDataUrl = stripUrl;
 
@@ -341,44 +349,18 @@ function TabletRemote() {
       printDataUrl = canvas.toDataURL("image/jpeg", 0.94);
     }
 
-    const popup = window.open("", "_blank", "width=720,height=480");
-    if (popup) {
-      popup.document.write(`<!DOCTYPE html><html><head><title>ROVI Photo Print</title>
-<style>
-  @page { margin: 0; }
-  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-  html, body {
-    width: 100%;
-    height: 100%;
-    background: #ffffff;
-    overflow: hidden;
-    -webkit-print-color-adjust: exact;
-    print-color-adjust: exact;
-  }
-  img {
-    display: block;
-    width: 100vw;
-    height: 100vh;
-    object-fit: fill;
-    page-break-after: avoid;
-    break-after: avoid;
-  }
-</style></head>
-<body>
-  <img id="p" src="${printDataUrl}" />
-  <script>document.getElementById('p').onload=function(){setTimeout(function(){window.focus();window.print();window.close();},400);};<\/script>
-</body></html>`);
-      popup.document.close();
-    } else {
-      const overlay = document.createElement("div");
-      overlay.style.display = "none";
-      const printImg = document.createElement("img");
-      printImg.src = printDataUrl;
-      overlay.appendChild(printImg);
-      document.body.appendChild(overlay);
-      window.print();
-      document.body.removeChild(overlay);
+    // Modern, popup-blocker safe printing for mobile / iPad Safari
+    let printArea = document.getElementById("rovi-tablet-print-area");
+    if (!printArea) {
+      printArea = document.createElement("div");
+      printArea.id = "rovi-tablet-print-area";
+      document.body.appendChild(printArea);
     }
+    printArea.innerHTML = `<img src="${printDataUrl}" style="width:100%;height:100%;object-fit:contain;" />`;
+
+    setTimeout(() => {
+      window.print();
+    }, 150);
   };
 
   const handleRetake = () => {
@@ -397,20 +379,39 @@ function TabletRemote() {
     setShowQR(false);
   };
 
-  const handleDownload = () => {
+  const handleDownload = async () => {
     if (!stripUrl) return;
+
+    // Mobile Web Share API for iOS Safari & Android Chrome
+    if (typeof navigator !== "undefined" && navigator.share && stripUrl.startsWith("data:")) {
+      try {
+        const blob = await (await fetch(stripUrl)).blob();
+        const file = new File([blob], `rovi-photo-${currentStripId || "strip"}.jpg`, { type: "image/jpeg" });
+        if (navigator.canShare && navigator.canShare({ files: [file] })) {
+          await navigator.share({
+            title: "My ROVI Photo Strip",
+            files: [file],
+          });
+          return;
+        }
+      } catch (e) {
+        console.warn("Share cancelled or unsupported:", e);
+      }
+    }
+
     const a = document.createElement("a");
     a.href = stripUrl;
-    a.download = `rovi-photo-strip.jpg`;
+    a.download = `rovi-photo-${currentStripId || "strip"}.jpg`;
+    a.target = "_blank";
     a.click();
   };
 
   const handleQR = async () => {
     if (!stripUrl) return;
-    // Use the base64 data URL directly — works for local dev without cloud storage
-    const qrUrl = stripUrl.startsWith("data:")
-      ? `${window.location.origin}${window.location.pathname}` // generic URL if base64
-      : stripUrl;
+    const qrUrl = currentStripId
+      ? `${window.location.origin}/photo/${currentStripId}`
+      : (stripUrl.startsWith("data:") ? window.location.origin : stripUrl);
+
     const dataUrl = await QRCode.toDataURL(qrUrl, { width: 512, margin: 2, color: { dark: "#000000", light: "#ffffff" } });
     setQr(dataUrl);
     setShowQR(true);
@@ -449,6 +450,22 @@ function TabletRemote() {
 
   return (
     <div className="fixed inset-0 grid-bg overflow-hidden select-none">
+      <style>{`
+        @media print {
+          body > *:not(#rovi-tablet-print-area) {
+            display: none !important;
+          }
+          #rovi-tablet-print-area {
+            display: block !important;
+            position: fixed;
+            inset: 0;
+            width: 100vw;
+            height: 100vh;
+            background: white;
+            z-index: 99999;
+          }
+        }
+      `}</style>
       {/* Small channel tag */}
       <div className="absolute top-4 left-4 text-xs font-mono text-muted-foreground/30 z-10">
         CH: {channel}
