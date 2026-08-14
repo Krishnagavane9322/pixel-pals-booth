@@ -365,18 +365,32 @@ function TabletRemote() {
       printDataUrl = canvas.toDataURL("image/jpeg", 0.94);
     }
 
-    // Modern, popup-blocker safe printing for mobile / iPad Safari
+    // Set up the print area div (appended directly to body)
     let printArea = document.getElementById("rovi-tablet-print-area");
     if (!printArea) {
       printArea = document.createElement("div");
       printArea.id = "rovi-tablet-print-area";
       document.body.appendChild(printArea);
     }
-    printArea.innerHTML = `<img src="${printDataUrl}" style="width:100%;height:100%;object-fit:contain;" />`;
+    // Clear any previous content
+    printArea.innerHTML = "";
 
-    setTimeout(() => {
+    // Create image element — fire window.print() only AFTER image fully renders
+    // (setTimeout 150ms is not reliable for large base64 images on iPads)
+    const printImg = document.createElement("img");
+    printImg.style.cssText = "display:block;width:100%;height:auto;max-width:100%;";
+    printImg.onload = () => {
+      // Give browser one animation frame to paint the image before printing
+      requestAnimationFrame(() => {
+        window.print();
+      });
+    };
+    printImg.onerror = () => {
+      console.error("[Tablet] Print image failed to load — printing anyway");
       window.print();
-    }, 150);
+    };
+    printImg.src = printDataUrl;
+    printArea.appendChild(printImg);
   };
 
   const handleRetake = () => {
@@ -477,17 +491,39 @@ function TabletRemote() {
     <div className="fixed inset-0 grid-bg overflow-hidden select-none">
       <style>{`
         @media print {
+          * {
+            -webkit-print-color-adjust: exact !important;
+            color-adjust: exact !important;
+            print-color-adjust: exact !important;
+          }
           body > *:not(#rovi-tablet-print-area) {
             display: none !important;
+            visibility: hidden !important;
+          }
+          body {
+            margin: 0 !important;
+            padding: 0 !important;
+            background: white !important;
           }
           #rovi-tablet-print-area {
             display: block !important;
-            position: fixed;
-            inset: 0;
-            width: 100vw;
-            height: 100vh;
-            background: white;
-            z-index: 99999;
+            visibility: visible !important;
+            position: fixed !important;
+            top: 0 !important;
+            left: 0 !important;
+            width: 100% !important;
+            height: 100% !important;
+            background: white !important;
+            z-index: 99999 !important;
+            margin: 0 !important;
+            padding: 0 !important;
+          }
+          #rovi-tablet-print-area img {
+            display: block !important;
+            width: 100% !important;
+            height: 100% !important;
+            object-fit: contain !important;
+            -webkit-print-color-adjust: exact !important;
           }
         }
       `}</style>
