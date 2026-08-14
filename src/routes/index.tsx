@@ -127,6 +127,10 @@ function Kiosk() {
   // Broadcast state change back to the tablet remote
   useEffect(() => {
     if (!PUSHER_KEY || !PUSHER_CLUSTER) return;
+    const currentStripUrl = strip?.dataUrl && !strip.dataUrl.startsWith("data:") 
+      ? strip.dataUrl 
+      : (strip?.id ? `/photos/${strip.id}.jpg` : null);
+
     sendPusherEvent({
       data: {
         channel,
@@ -141,10 +145,12 @@ function Kiosk() {
           theme: settings.theme,
           enablePrint: settings.enablePrint,
           enableQR: settings.enableQR,
+          stripId: strip?.id || null,
+          stripUrl: currentStripUrl,
         },
       },
     }).catch((err) => console.warn("Failed to broadcast state change:", err));
-  }, [screen, cameraState, channel, settings, PUSHER_KEY, PUSHER_CLUSTER]);
+  }, [screen, cameraState, channel, settings, PUSHER_KEY, PUSHER_CLUSTER, strip]);
 
   const onCapturedAll = useCallback(async (imgs: string[]) => {
     setPhotos(imgs);
@@ -163,15 +169,16 @@ function Kiosk() {
     // Perform upload/save in the background
     uploadPhoto({ data: { id, dataUrl, eventName: s.eventName } })
       .then((res) => {
-        let finalUrl = dataUrl;
+        let finalUrl = `/photos/${id}.jpg`;
         if (res && res.success && res.url) {
-          // Keep relative URL (local dev: /photos/xxx.jpg) relative
-          // so the tablet can resolve it with its own origin (the laptop's network IP)
           finalUrl = res.url;
           console.log("Photo processed and saved to:", finalUrl);
         } else {
-          console.warn("Upload/Save failed, falling back to base64:", res?.error);
+          console.warn("Upload/Save failed, using local photos path:", res?.error);
         }
+
+        // Never send large base64 data over Pusher (max 10KB payload)
+        const photoPayloadUrl = finalUrl.startsWith("data:") ? `/photos/${id}.jpg` : finalUrl;
 
         // Broadcast ready photo back to the tablet
         if (PUSHER_KEY && PUSHER_CLUSTER) {
@@ -179,21 +186,19 @@ function Kiosk() {
             data: {
               channel,
               event: "PHOTO_READY",
-              data: { id, dataUrl: finalUrl },
+              data: { id, dataUrl: photoPayloadUrl },
             },
           }).catch((err) => console.warn("Failed to broadcast PHOTO_READY:", err));
         }
       })
       .catch((err) => {
         console.error("Failed to upload/save photo:", err);
-        // Fallback: send base64 if upload fails
-        // NOTE: base64 may exceed Pusher's 10KB limit for large strips
         if (PUSHER_KEY && PUSHER_CLUSTER) {
           sendPusherEvent({
             data: {
               channel,
               event: "PHOTO_READY",
-              data: { id, dataUrl },
+              data: { id, dataUrl: `/photos/${id}.jpg` },
             },
           }).catch((e) => console.warn(e));
         }
@@ -471,6 +476,37 @@ function CameraScreen({
       peerRef.current?.close();
       peerRef.current = null;
     };
+  }, [ready, channelName]);
+
+  // Broadcast compressed camera snapshot frames over Pusher during camera mode as WebRTC fallback
+  useEffect(() => {
+    if (!ready) return;
+
+    const canvas = document.createElement("canvas");
+    canvas.width = 320;
+    canvas.height = 240;
+    const ctx = canvas.getContext("2d");
+
+    const interval = setInterval(() => {
+      if (!videoRef.current || !ctx || videoRef.current.readyState < 2) return;
+      try {
+        ctx.save();
+        ctx.translate(320, 0);
+        ctx.scale(-1, 1);
+        ctx.drawImage(videoRef.current, 0, 0, 320, 240);
+        ctx.restore();
+        const frameData = canvas.toDataURL("image/jpeg", 0.4);
+        sendPusherEvent({
+          data: {
+            channel: channelName,
+            event: "CAMERA_FRAME",
+            data: { frame: frameData },
+          },
+        }).catch(() => {});
+      } catch (e) {}
+    }, 350);
+
+    return () => clearInterval(interval);
   }, [ready, channelName]);
 
   useEffect(() => {

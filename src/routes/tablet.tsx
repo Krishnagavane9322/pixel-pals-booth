@@ -43,9 +43,11 @@ function TabletRemote() {
   // QR code for downloading
   const [qr, setQr] = useState<string | null>(null);
   const [showQR, setShowQR] = useState(false);
-
   const [connected, setConnected] = useState(false);
   const [configError, setConfigError] = useState(false);
+  const [snapshotUrl, setSnapshotUrl] = useState<string | null>(null);
+  const [hasWebRtcVideo, setHasWebRtcVideo] = useState(false);
+
   const pusherRef = useRef<Pusher | null>(null);
   const pusherChannelRef = useRef<any>(null);
   const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
@@ -56,6 +58,38 @@ function TabletRemote() {
   const PUSHER_CLUSTER = import.meta.env.VITE_PUSHER_CLUSTER;
 
   const numShots = printLayout === "4x6" ? 4 : 3;
+
+  const loadStripForTablet = async (id?: string | null, url?: string | null) => {
+    if (id) {
+      try {
+        const res = await getStripData({ data: id });
+        if (res && res.success && res.dataUrl) {
+          setStripUrl(res.dataUrl);
+          return;
+        }
+      } catch (err) {
+        console.warn("[Tablet] getStripData failed, trying URL fallback:", err);
+      }
+    }
+
+    if (url) {
+      let resolvedUrl = url.startsWith("/")
+        ? `${window.location.origin}${url}`
+        : url;
+
+      if (resolvedUrl.includes("//localhost:") || resolvedUrl.includes("//127.0.0.1:")) {
+        resolvedUrl = resolvedUrl
+          .replace("//localhost:", `//${window.location.hostname}:`)
+          .replace("//127.0.0.1:", `//${window.location.hostname}:`);
+      } else if (resolvedUrl.includes("//localhost/") || resolvedUrl.includes("//127.0.0.1/")) {
+        resolvedUrl = resolvedUrl
+          .replace("//localhost/", `//${window.location.hostname}/`)
+          .replace("//127.0.0.1/", `//${window.location.hostname}/`);
+      }
+
+      setStripUrl(resolvedUrl);
+    }
+  };
 
   useEffect(() => {
     if (!PUSHER_KEY || !PUSHER_CLUSTER) {
@@ -92,11 +126,10 @@ function TabletRemote() {
       printLayout?: string;
       enablePrint?: boolean;
       enableQR?: boolean;
+      stripId?: string;
+      stripUrl?: string;
     }) => {
-      // Only update screen if not going to preview (handled by PHOTO_READY)
-      if (msg.screen !== "preview") {
-        setState(msg.screen);
-      }
+      setState(msg.screen);
       setCount(msg.count);
       setShotIdx(msg.shotIdx);
       setFlash(msg.flash);
@@ -104,41 +137,21 @@ function TabletRemote() {
       if (msg.printLayout) setPrintLayout(msg.printLayout);
       if (msg.enablePrint !== undefined) setEnablePrint(msg.enablePrint);
       if (msg.enableQR !== undefined) setEnableQR(msg.enableQR);
+
+      if (msg.screen === "preview" && (msg.stripId || msg.stripUrl)) {
+        loadStripForTablet(msg.stripId, msg.stripUrl);
+      }
     });
 
     pusherChannel.bind("PHOTO_READY", async (msg: { id?: string; dataUrl: string }) => {
-      // Best approach: fetch the strip as base64 directly from the server function.
-      // This is more reliable than resolving a static file URL over the local network.
-      if (msg.id) {
-        try {
-          const res = await getStripData({ data: msg.id });
-          if (res && res.success && res.dataUrl) {
-            setStripUrl(res.dataUrl);
-            setState("preview");
-            return;
-          }
-        } catch (err) {
-          console.warn("[PHOTO_READY] getStripData failed, falling back to URL:", err);
-        }
-      }
-
-      // Fallback: resolve URL (works when photos are in Vercel Blob cloud storage)
-      let resolvedUrl = msg.dataUrl.startsWith("/")
-        ? `${window.location.origin}${msg.dataUrl}`
-        : msg.dataUrl;
-
-      if (resolvedUrl.includes("//localhost:") || resolvedUrl.includes("//127.0.0.1:")) {
-        resolvedUrl = resolvedUrl
-          .replace("//localhost:", `//${window.location.hostname}:`)
-          .replace("//127.0.0.1:", `//${window.location.hostname}:`);
-      } else if (resolvedUrl.includes("//localhost/") || resolvedUrl.includes("//127.0.0.1/")) {
-        resolvedUrl = resolvedUrl
-          .replace("//localhost/", `//${window.location.hostname}/`)
-          .replace("//127.0.0.1/", `//${window.location.hostname}/`);
-      }
-
-      setStripUrl(resolvedUrl);
       setState("preview");
+      await loadStripForTablet(msg.id, msg.dataUrl);
+    });
+
+    pusherChannel.bind("CAMERA_FRAME", (msg: { frame: string }) => {
+      if (msg.frame) {
+        setSnapshotUrl(msg.frame);
+      }
     });
 
     pusherChannel.bind("RESET", () => {
@@ -146,6 +159,8 @@ function TabletRemote() {
       setStripUrl(null);
       setQr(null);
       setShowQR(false);
+      setSnapshotUrl(null);
+      setHasWebRtcVideo(false);
     });
 
     return () => {
@@ -176,6 +191,7 @@ function TabletRemote() {
       tabletPeerRef.current?.close();
       tabletPeerRef.current = null;
       pendingHostCandidatesRef.current = [];
+      setHasWebRtcVideo(false);
       if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
       return;
     }
@@ -206,8 +222,13 @@ function TabletRemote() {
       pc.ontrack = (e) => {
         console.log("[WebRTC] Track received on tablet — attaching to video");
         if (remoteVideoRef.current && e.streams[0]) {
+          remoteVideoRef.current.muted = true;
           remoteVideoRef.current.srcObject = e.streams[0];
-          remoteVideoRef.current.play().catch(console.warn);
+          remoteVideoRef.current.play().then(() => {
+            setHasWebRtcVideo(true);
+          }).catch((err) => {
+            console.warn("[WebRTC] Video play error on tablet:", err);
+          });
         }
       };
 
@@ -263,6 +284,7 @@ function TabletRemote() {
       tabletPeerRef.current?.close();
       tabletPeerRef.current = null;
       pendingHostCandidatesRef.current = [];
+      setHasWebRtcVideo(false);
     };
   }, [state, channel, connected]);
 
@@ -273,6 +295,7 @@ function TabletRemote() {
 
   // ── PRINT: exact same logic as the laptop's handlePrint ────────────────────
   const handlePrint = async () => {
+    triggerEvent("TRIGGER_PRINT");
     if (!stripUrl) return;
     let printDataUrl = stripUrl;
 
@@ -482,22 +505,35 @@ function TabletRemote() {
                   autoPlay
                   playsInline
                   muted
-                  className="absolute inset-0 w-full h-full object-cover z-10"
+                  className={`absolute inset-0 w-full h-full object-cover z-10 transition-opacity duration-300 ${hasWebRtcVideo ? "opacity-100" : "opacity-0"}`}
                   style={{ transform: "scaleX(-1)" }}
                 />
 
+                {/* Fallback live snapshot stream if WebRTC is unavailable */}
+                {snapshotUrl && !hasWebRtcVideo && (
+                  <img
+                    src={snapshotUrl}
+                    alt="Live camera feed"
+                    className="absolute inset-0 w-full h-full object-cover z-5"
+                  />
+                )}
+
                 {/* Fallback shown behind video until stream connects */}
-                <div className="absolute inset-0 grid-bg opacity-40" />
-                <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-muted-foreground z-0">
-                  <motion.div
-                    animate={{ scale: [1, 1.08, 1], opacity: [0.5, 1, 0.5] }}
-                    transition={{ duration: 2, repeat: Infinity }}
-                    className="text-7xl"
-                  >
-                    📷
-                  </motion.div>
-                  <p className="text-sm font-medium">Connecting to camera…</p>
-                </div>
+                {!snapshotUrl && !hasWebRtcVideo && (
+                  <>
+                    <div className="absolute inset-0 grid-bg opacity-40" />
+                    <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-muted-foreground z-0">
+                      <motion.div
+                        animate={{ scale: [1, 1.08, 1], opacity: [0.5, 1, 0.5] }}
+                        transition={{ duration: 2, repeat: Infinity }}
+                        className="text-7xl"
+                      >
+                        📷
+                      </motion.div>
+                      <p className="text-sm font-medium">Connecting to camera…</p>
+                    </div>
+                  </>
+                )}
 
                 {/* Mirrored countdown overlay */}
                 <AnimatePresence>
