@@ -302,6 +302,17 @@ function TabletRemote() {
     setState("camera");
   };
 
+  const handleGoHome = () => {
+    triggerEvent("GO_HOME");
+    setState("welcome");
+    setStripUrl(null);
+    setCurrentStripId(null);
+    setQr(null);
+    setShowQR(false);
+    setSnapshotUrl(null);
+    setHasWebRtcVideo(false);
+  };
+
   // Helper: convert an http/https URL to a base64 data URL by fetching as blob
   const toDataUrl = async (src: string): Promise<string> => {
     if (src.startsWith("data:")) return src;
@@ -434,14 +445,6 @@ function TabletRemote() {
     triggerEvent("START_CAPTURE");
 
     setState("camera");
-    setStripUrl(null);
-    setQr(null);
-    setShowQR(false);
-  };
-
-  const handleGoHome = () => {
-    triggerEvent("GO_HOME");
-    setState("welcome");
     setStripUrl(null);
     setQr(null);
     setShowQR(false);
