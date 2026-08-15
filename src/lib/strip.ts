@@ -416,6 +416,9 @@ export function captureFromVideo(video: HTMLVideoElement, cssFilter?: string): s
   ctx.scale(-1, 1);
   if (cssFilter) {
     ctx.filter = cssFilter;
+  } else {
+    // Subtle sharpness & color pop enhancement filter for DSLR/Webcam stills
+    ctx.filter = "contrast(1.04) saturate(1.05)";
   }
   ctx.drawImage(video, 0, 0, vw, vh);
   return c.toDataURL("image/jpeg", 1.0);

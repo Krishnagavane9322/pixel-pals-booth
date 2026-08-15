@@ -641,6 +641,16 @@ function CameraScreen({
               }
             }
 
+            // 3. Auto-Focus Mode & Sharpness Boost
+            if (caps.focusMode?.includes("continuous")) {
+              advancedConstraints.focusMode = "continuous";
+            } else if (caps.focusMode?.includes("single-shot")) {
+              advancedConstraints.focusMode = "single-shot";
+            }
+            if (caps.sharpness) {
+              advancedConstraints.sharpness = caps.sharpness.max;
+            }
+
             if (Object.keys(advancedConstraints).length > 0) {
               await track.applyConstraints({ advanced: [advancedConstraints] });
             }
@@ -714,16 +724,18 @@ function CameraScreen({
         await runCountdown(i === 0 ? settings.countdownTime : settings.photoGap);
         if (cancelled || !videoRef.current) return;
 
-        // 1. Activate flash screen overlay + Hardware Camera Torch FIRST
+        // 1. Activate flash screen overlay + Hardware Camera Torch & Auto-Focus Lock
         setFlash(true);
         try {
           const track = streamRef.current?.getVideoTracks()[0];
           if (track && typeof (track as any).applyConstraints === "function") {
             const caps = (typeof (track as any).getCapabilities === "function" ? (track as any).getCapabilities() : {}) as any;
-            if (caps.torch || caps.fillLightMode) {
-              const adv: any = {};
-              if (caps.torch) adv.torch = true;
-              if (caps.fillLightMode) adv.fillLightMode = "flash";
+            const adv: any = {};
+            if (caps.torch) adv.torch = true;
+            if (caps.fillLightMode) adv.fillLightMode = "flash";
+            if (caps.focusMode?.includes("single-shot")) adv.focusMode = "single-shot";
+            else if (caps.focusMode?.includes("continuous")) adv.focusMode = "continuous";
+            if (Object.keys(adv).length > 0) {
               (track as any).applyConstraints({ advanced: [adv] }).catch(() => {});
             }
           }
