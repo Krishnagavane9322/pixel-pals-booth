@@ -1,15 +1,7 @@
 // /api/session — Tiny kiosk state store for cross-lambda polling on Vercel.
-//
-// The SSE broker uses in-memory globalThis which breaks on Vercel Serverless
-// because each request hits a different lambda. This endpoint solves the
-// problem by:
-//   POST: kiosk writes its current screen state + stripId here
-//   GET:  tablet polls here every 1s to know when to fetch the strip
-//
-// State is kept in globalThis (survives warm lambda reuse) AND in a tiny
-// JSON file under /tmp so a cold lambda can also read recent state via disk.
+// Uses official h3 readBody and getQuery helpers for Nitro / Vercel.
 
-import { defineHandler } from "h3";
+import { defineEventHandler, getQuery, readBody } from "h3";
 import fs from "fs";
 import path from "path";
 import os from "os";
@@ -21,7 +13,6 @@ type SessionState = {
   ts: number;
 };
 
-// In-memory store — survives lambda reuse (warm starts)
 const g = globalThis as any;
 if (!g.__sessionStore) g.__sessionStore = new Map<string, SessionState>();
 const sessionStore: Map<string, SessionState> = g.__sessionStore;
@@ -37,7 +28,6 @@ function readSessionFromDisk(channel: string): SessionState | null {
     if (!fs.existsSync(fp)) return null;
     const raw = fs.readFileSync(fp, "utf-8");
     const parsed = JSON.parse(raw) as SessionState;
-    // Ignore stale disk sessions older than 30 minutes
     if (Date.now() - parsed.ts > 30 * 60 * 1000) return null;
     return parsed;
   } catch {
@@ -49,53 +39,48 @@ function writeSessionToDisk(state: SessionState) {
   try {
     fs.writeFileSync(sessionFilePath(state.channel), JSON.stringify(state), "utf-8");
   } catch {
-    // Read-only fs on some environments — ignore
+    // Read-only fs fallback
   }
 }
 
-export default defineHandler(async (event) => {
-  const method = event.req.method ?? "GET";
-  const url = new URL(event.req.url);
-  const channel = url.searchParams.get("channel") ?? "default";
+export default defineEventHandler(async (event) => {
+  const method = event.method;
+  const query = getQuery(event);
+  const channel = String(query.channel || "default");
 
   if (method === "POST") {
-    let body: Partial<SessionState> = {};
     try {
-      const text = await new Response(event.req.body as any).text();
-      body = JSON.parse(text);
-    } catch {
-      return Response.json({ success: false, error: "Bad JSON" }, { status: 400 });
+      const body = (await readBody(event)) as Partial<SessionState>;
+      const state: SessionState = {
+        channel,
+        screen: body?.screen ?? "welcome",
+        stripId: body?.stripId ?? null,
+        ts: Date.now(),
+      };
+
+      sessionStore.set(channel, state);
+      writeSessionToDisk(state);
+
+      return { success: true };
+    } catch (err: any) {
+      return { success: false, error: err?.message };
     }
-
-    const state: SessionState = {
-      channel,
-      screen: body.screen ?? "welcome",
-      stripId: body.stripId ?? null,
-      ts: Date.now(),
-    };
-
-    sessionStore.set(channel, state);
-    writeSessionToDisk(state);
-
-    return Response.json({ success: true });
   }
 
   if (method === "GET") {
-    // 1. Check warm-lambda in-memory store
     let state = sessionStore.get(channel);
 
-    // 2. Fall back to disk (cold-start lambda)
     if (!state) {
       state = readSessionFromDisk(channel) ?? undefined;
-      if (state) sessionStore.set(channel, state); // re-hydrate memory
+      if (state) sessionStore.set(channel, state);
     }
 
     if (!state) {
-      return Response.json({ success: true, screen: "welcome", stripId: null, ts: 0 });
+      return { success: true, screen: "welcome", stripId: null, ts: 0 };
     }
 
-    return Response.json({ success: true, ...state });
+    return { success: true, ...state };
   }
 
-  return Response.json({ success: false, error: "Method not allowed" }, { status: 405 });
+  return { success: false, error: "Method not allowed" };
 });

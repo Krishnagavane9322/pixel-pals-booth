@@ -1,8 +1,7 @@
 // /api/signal — WebRTC signaling relay endpoint for Vercel Serverless.
-// Enables 100% reliable WebRTC P2P connection setup between Kiosk camera & Tablet,
-// allowing full HD 60fps zero-lag live video streaming without relying on SSE.
+// Uses official h3 readBody and getQuery helpers for Nitro / Vercel.
 
-import { defineHandler } from "h3";
+import { defineEventHandler, getQuery, readBody } from "h3";
 
 type SignalItem = {
   id: string;
@@ -30,44 +29,39 @@ function cleanupChannel(channel: string) {
 }
 
 export default defineEventHandler(async (event) => {
-  const method = event.req.method ?? "GET";
-  const url = new URL(event.req.url);
-  const channel = url.searchParams.get("channel") ?? "default";
+  const method = event.method;
+  const query = getQuery(event);
+  const channel = String(query.channel || "default");
 
   if (method === "POST") {
-    let body: { type?: SignalItem["type"]; data?: any } = {};
     try {
-      const text = await new Response(event.req.body as any).text();
-      body = JSON.parse(text);
-    } catch {
-      return Response.json({ success: false }, { status: 400 });
+      const body = (await readBody(event)) as { type?: SignalItem["type"]; data?: any };
+      if (body && body.type && body.data) {
+        cleanupChannel(channel);
+        if (!signalStore.has(channel)) signalStore.set(channel, []);
+        const list = signalStore.get(channel)!;
+        list.push({
+          id: `${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+          type: body.type,
+          data: body.data,
+          ts: Date.now(),
+        });
+        if (list.length > 50) list.shift();
+      }
+      return { success: true };
+    } catch (err: any) {
+      return { success: false, error: err?.message };
     }
-
-    if (body.type && body.data) {
-      cleanupChannel(channel);
-      if (!signalStore.has(channel)) signalStore.set(channel, []);
-      const list = signalStore.get(channel)!;
-      list.push({
-        id: `${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
-        type: body.type,
-        data: body.data,
-        ts: Date.now(),
-      });
-      // Keep max 50 signals
-      if (list.length > 50) list.shift();
-    }
-
-    return Response.json({ success: true });
   }
 
   if (method === "GET") {
-    const since = Number(url.searchParams.get("since") ?? "0");
+    const since = Number(query.since || "0");
     cleanupChannel(channel);
     const list = signalStore.get(channel) || [];
     const newSignals = list.filter((item) => item.ts > since);
 
-    return Response.json({ success: true, signals: newSignals, serverTime: Date.now() });
+    return { success: true, signals: newSignals, serverTime: Date.now() };
   }
 
-  return Response.json({ success: false, error: "Method not allowed" }, { status: 405 });
+  return { success: false, error: "Method not allowed" };
 });

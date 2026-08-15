@@ -559,13 +559,13 @@ function CameraScreen({
   }, [ready, channelName]);
 
   // High-quality live camera frame relay — direct POST to /api/frame
-  // Provides sharp, non-blurry 480x360 preview when WebRTC direct video stream is establishing
+  // Provides sharp 360x270 preview (~14KB) when WebRTC direct video stream is establishing
   useEffect(() => {
     if (!ready) return;
 
     const canvas = document.createElement("canvas");
-    canvas.width = 480;  // 480x360: sharp & crisp on high-res tablet screens
-    canvas.height = 360;
+    canvas.width = 360;  // 360x270: sharp, fast, & crisp on high-res tablet screens
+    canvas.height = 270;
     const ctx = canvas.getContext("2d", { alpha: false });
 
     let isPosting = false; // Lock to prevent HTTP request queueing & buffer bloat
@@ -579,13 +579,13 @@ function CameraScreen({
       try {
         isPosting = true;
         ctx.save();
-        ctx.translate(480, 0);
+        ctx.translate(360, 0);
         ctx.scale(-1, 1);
-        ctx.drawImage(videoRef.current, 0, 0, 480, 360);
+        ctx.drawImage(videoRef.current, 0, 0, 360, 270);
         ctx.restore();
 
-        // 0.55 quality at 480x360: crisp image details with reasonable size (~25-35KB)
-        const frameData = canvas.toDataURL("image/jpeg", 0.55);
+        // 0.45 quality at 360x270: crisp image details with fast transfer size (~14KB)
+        const frameData = canvas.toDataURL("image/jpeg", 0.45);
 
         await fetch(`/api/frame?channel=${encodeURIComponent(channelName)}`, {
           method: "POST",
@@ -596,7 +596,7 @@ function CameraScreen({
       } finally {
         isPosting = false;
       }
-    }, 180); // 180ms (~5.5 fps) with async lock keeps network smooth and non-blocking
+    }, 160); // 160ms (~6 fps) with async lock keeps network smooth and non-blocking
 
     return () => clearInterval(interval);
   }, [ready, channelName]);
