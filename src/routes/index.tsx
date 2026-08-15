@@ -105,7 +105,12 @@ function Kiosk() {
 
   // Broadcast state change to the tablet remote over SSE
   useEffect(() => {
-    const currentStripUrl = strip?.dataUrl || null;
+    // Only send stripUrl if it's a lightweight cloud URL (Vercel Blob).
+    // Large base64 strings are omitted from sendPusherEvent to keep HTTP POST payloads <200 bytes.
+    // Tablet fetches the full image via getStripData(stripId) server function.
+    const currentStripUrl = strip?.dataUrl && !strip.dataUrl.startsWith("data:")
+      ? strip.dataUrl
+      : null;
 
     sendPusherEvent({
       data: {
@@ -151,10 +156,10 @@ function Kiosk() {
     // The tablet will load the image via the local network URL
     uploadPhoto({ data: { id, dataUrl, eventName: s.eventName } })
       .then((res) => {
-        // Broadcast PHOTO_READY with base64 dataUrl (or Cloud URL if available)
+        // Broadcast PHOTO_READY with lightweight URL (or ID only)
         const photoUrl = (res && res.success && res.url && !res.url.startsWith("/photos/"))
           ? res.url
-          : dataUrl;
+          : null;
 
         sendPusherEvent({
           data: {
@@ -166,12 +171,11 @@ function Kiosk() {
       })
       .catch((err) => {
         console.error("Failed to upload/save photo:", err);
-        // Fallback: send base64 dataUrl directly
         sendPusherEvent({
           data: {
             channel,
             event: "PHOTO_READY",
-            data: { id, dataUrl },
+            data: { id, dataUrl: null },
           },
         }).catch((e) => console.warn(e));
       });
@@ -451,7 +455,7 @@ function CameraScreen({
     };
   }, [ready, channelName]);
 
-  // Broadcast compressed camera snapshot frames over Pusher during camera mode as WebRTC fallback
+  // Broadcast compressed camera snapshot frames as fallback when WebRTC is not connected
   useEffect(() => {
     if (!ready) return;
 
@@ -462,13 +466,16 @@ function CameraScreen({
 
     const interval = setInterval(() => {
       if (!videoRef.current || !ctx || videoRef.current.readyState < 2) return;
+      // Skip HTTP snapshot broadcasts if WebRTC P2P video stream is connected
+      if (peerRef.current?.connectionState === "connected") return;
+
       try {
         ctx.save();
         ctx.translate(320, 0);
         ctx.scale(-1, 1);
         ctx.drawImage(videoRef.current, 0, 0, 320, 240);
         ctx.restore();
-        const frameData = canvas.toDataURL("image/jpeg", 0.4);
+        const frameData = canvas.toDataURL("image/jpeg", 0.35);
         sendPusherEvent({
           data: {
             channel: channelName,
@@ -477,7 +484,7 @@ function CameraScreen({
           },
         }).catch(() => {});
       } catch (e) {}
-    }, 350);
+    }, 1200);
 
     return () => clearInterval(interval);
   }, [ready, channelName]);
