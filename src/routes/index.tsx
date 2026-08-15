@@ -486,8 +486,8 @@ function CameraScreen({
     (async () => {
       try {
         const videoConstraints: MediaTrackConstraints = {
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
+          width: { ideal: 1920, min: 1280 },
+          height: { ideal: 1080, min: 720 },
         };
 
         if (settings.cameraId) {
@@ -505,7 +505,7 @@ function CameraScreen({
           if (settings.cameraId) {
             console.warn("Selected camera failed, falling back to default camera:", deviceErr);
             stream = await navigator.mediaDevices.getUserMedia({
-              video: { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 } },
+              video: { facingMode: "user", width: { ideal: 1920, min: 1280 }, height: { ideal: 1080, min: 720 } },
               audio: false,
             });
           } else {
@@ -636,12 +636,33 @@ function CameraScreen({
         setShotIdx(i);
         await runCountdown(i === 0 ? settings.countdownTime : settings.photoGap);
         if (cancelled || !videoRef.current) return;
+
+        // 1. Activate flash screen overlay FIRST so the screen illuminates the faces/room
+        setFlash(true);
+
+        // 2. Notify tablet to flash simultaneously
+        sendPusherEvent({
+          data: {
+            channel: channelName,
+            event: "STATE_CHANGE",
+            data: { screen: "camera", count: 0, shotIdx: i, flash: true },
+          },
+        }).catch(() => {});
+
+        // 3. Wait 100ms for camera sensor to adjust to bright white illumination
+        await wait(100);
+        if (cancelled || !videoRef.current) return;
+
+        // 4. Capture high-quality photo under full flash light
         const img = captureFromVideo(videoRef.current, cssFilter);
         photosRef.current.push(img);
         playShutterSound();
-        setFlash(true);
-        setTimeout(() => setFlash(false), 220);
-        await wait(600);
+
+        // 5. Keep flash active briefly then turn off
+        await wait(180);
+        setFlash(false);
+
+        await wait(400);
       }
       if (!cancelled) onDone(photosRef.current);
     })();
@@ -694,7 +715,7 @@ function CameraScreen({
               </motion.div>
             )}
           </AnimatePresence>
-          {flash && <div className="absolute inset-0 bg-white animate-pulse" />}
+          {flash && <div className="fixed inset-0 bg-white z-[9999] pointer-events-none animate-pulse" />}
         </div>
       </div>
 

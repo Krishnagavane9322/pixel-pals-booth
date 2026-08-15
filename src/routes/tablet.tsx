@@ -594,7 +594,7 @@ function TabletRemote() {
                 </AnimatePresence>
 
                 {/* White flash mirroring */}
-                {flash && <div className="absolute inset-0 bg-white z-30" />}
+                {flash && <div className="fixed inset-0 bg-white z-[9999] pointer-events-none animate-pulse" />}
               </div>
             </div>
 
