@@ -422,6 +422,41 @@ function TabletRemote() {
     };
   }, [state, channel, connected, channelBus]);
 
+  // ── Direct /api/frame polling — the low-latency camera preview path ─────────
+  // Bypasses the SSE broker (which is broken on Vercel Serverless) entirely.
+  // The kiosk POSTs a 240×180 JPEG to /api/frame every 150ms.
+  // We poll every 100ms so the displayed frame is at most ~250ms behind live.
+  // Stop polling when WebRTC video is active (hasWebRtcVideo) — no need to poll
+  // when we already have a real-time stream.
+  useEffect(() => {
+    if (state !== "camera") return; // only poll during camera session
+
+    let active = true;
+    let lastTs = 0; // track last seen frame timestamp to avoid duplicate renders
+
+    const poll = async () => {
+      if (!active || hasWebRtcVideo) return;
+      try {
+        const res = await fetch(`/api/frame?channel=${encodeURIComponent(channel)}`);
+        if (!res.ok || !active) return;
+        const data = await res.json() as { frame: string | null; ts?: number };
+        if (data.frame && data.ts !== lastTs) {
+          lastTs = data.ts ?? 0;
+          setSnapshotUrl(data.frame);
+        }
+      } catch {
+        // Network error — silently retry on next tick
+      }
+    };
+
+    const timer = setInterval(poll, 100); // 100ms = up to 10 frames/sec max
+    poll(); // immediate first fetch
+    return () => {
+      active = false;
+      clearInterval(timer);
+    };
+  }, [state, channel, hasWebRtcVideo]);
+
   const handleStart = () => {
     triggerEvent("START_CAPTURE");
     setState("camera");

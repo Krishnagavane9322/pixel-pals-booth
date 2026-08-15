@@ -537,38 +537,41 @@ function CameraScreen({
     };
   }, [ready, channelName]);
 
-  // Broadcast compressed camera snapshot frames as fallback when WebRTC is not connected
+  // Live camera frame relay — direct POST to /api/frame (bypasses SSE broker)
+  // This is the primary fallback path when WebRTC is not available.
+  // /api/frame is a simple key-value store: POST writes, GET reads.
+  // At 150ms intervals (≈6fps) the tablet sees a near-realtime preview.
   useEffect(() => {
     if (!ready) return;
 
+    // Smaller canvas = smaller payload = lower network latency
     const canvas = document.createElement("canvas");
-    canvas.width = 320;
-    canvas.height = 240;
+    canvas.width = 240;  // was 320
+    canvas.height = 180; // was 240
     const ctx = canvas.getContext("2d");
 
     const interval = setInterval(() => {
       if (!videoRef.current || !ctx || videoRef.current.readyState < 2) return;
-      // Only skip snapshot broadcast when WebRTC is fully established ("connected").
-      // During "connecting" / "new" / "failed" / "disconnected" states we still
-      // broadcast so the tablet always has a live feed via the HTTP fallback path.
+      // Skip only when WebRTC is fully connected (real-time stream active)
       if (peerRef.current?.connectionState === "connected") return;
 
       try {
         ctx.save();
-        ctx.translate(320, 0);
+        ctx.translate(240, 0);
         ctx.scale(-1, 1);
-        ctx.drawImage(videoRef.current, 0, 0, 320, 240);
+        ctx.drawImage(videoRef.current, 0, 0, 240, 180);
         ctx.restore();
-        const frameData = canvas.toDataURL("image/jpeg", 0.35);
-        sendPusherEvent({
-          data: {
-            channel: channelName,
-            event: "CAMERA_FRAME",
-            data: { frame: frameData },
-          },
+        // 0.25 quality at 240x180 ≈ 6–10KB — fast to transfer at 150ms
+        const frameData = canvas.toDataURL("image/jpeg", 0.25);
+
+        // PRIMARY: POST directly to /api/frame — no SSE broker, no sendPusherEvent overhead
+        fetch(`/api/frame?channel=${encodeURIComponent(channelName)}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ frame: frameData }),
         }).catch(() => {});
       } catch (e) {}
-    }, 400); // 400ms — fast enough for a smooth live preview on the tablet
+    }, 150); // 150ms ≈ 6fps — smooth enough for a live preview
 
     return () => clearInterval(interval);
   }, [ready, channelName]);
