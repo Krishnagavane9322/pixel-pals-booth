@@ -409,18 +409,34 @@ function drawCover(
 // Wait for N fresh decoded frames from the video element
 function waitForFrames(video: HTMLVideoElement, frameCount = 2): Promise<void> {
   return new Promise((resolve) => {
-    // requestVideoFrameCallback is available in Chrome 83+ and Edge
+    let done = false;
+    const finish = () => {
+      if (!done) {
+        done = true;
+        resolve();
+      }
+    };
+
+    // Hard 200ms max safety timeout
+    const timer = setTimeout(finish, 200);
+
     if (typeof (video as any).requestVideoFrameCallback === "function") {
       let remaining = frameCount;
       const tick = () => {
         remaining -= 1;
-        if (remaining <= 0) resolve();
-        else (video as any).requestVideoFrameCallback(tick);
+        if (remaining <= 0) {
+          clearTimeout(timer);
+          finish();
+        } else {
+          (video as any).requestVideoFrameCallback(tick);
+        }
       };
       (video as any).requestVideoFrameCallback(tick);
     } else {
-      // Fallback: wait 80ms per frame
-      setTimeout(resolve, frameCount * 80);
+      setTimeout(() => {
+        clearTimeout(timer);
+        finish();
+      }, frameCount * 80);
     }
   });
 }

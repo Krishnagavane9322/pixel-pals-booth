@@ -161,6 +161,12 @@ function TabletRemote() {
           !loadingRef.current
         ) {
           setState("camera");
+        } else if (
+          remoteScreen === "processing" &&
+          stateRef.current === "camera" &&
+          !loadingRef.current
+        ) {
+          setState("processing");
         }
       } catch {
         // Silently ignore network errors — will retry on next tick

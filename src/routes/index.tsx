@@ -193,56 +193,42 @@ function Kiosk() {
     const id = uid();
     const s = getSettings();
 
-    // Build the photo strip with an 8-second timeout so the "Creating Photo
-    // Strip" screen never freezes on slow devices.
+    // 1. Build the photo strip canvas (hard 5s timeout safety guard)
     let dataUrl: string;
     try {
       const buildPromise = buildStrip(imgs, s);
       const timeoutPromise = new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error("Strip build timeout after 8s")), 8000)
+        setTimeout(() => reject(new Error("Strip build timeout")), 5000)
       );
       dataUrl = await Promise.race([buildPromise, timeoutPromise]);
     } catch (err) {
-      console.error("[Strip] buildStrip failed or timed out — using first photo as fallback:", err);
+      console.error("[Strip] buildStrip failed — fallback to first capture:", err);
       dataUrl = imgs[0] ?? "";
     }
 
-    // Save locally first (ensures print/download work immediately on laptop)
+    // 2. Save locally in browser localStorage (instant)
     saveStrip({ id, dataUrl, createdAt: Date.now(), eventName: s.eventName });
     setStrip({ id, dataUrl });
 
-    // Transition the laptop to preview immediately — regardless of build success
+    // 3. Immediately transition the laptop kiosk UI to the preview screen!
     setScreen("preview");
 
-    // Immediately push preview + stripId to /api/session so the tablet can
-    // discover it via polling without waiting for SSE (which is unreliable on
-    // Vercel Serverless). This runs before the uploadStripToApi call so the
-    // session is updated as fast as possible.
+    // 4. Update /api/session so tablet knows the strip is ready
     postSessionState("preview", id);
 
-    // Upload to Nitro API (/api/strip) — works 100% reliably on Vercel Serverless
+    // 5. Background upload to Nitro API (/api/strip) — non-blocking
     uploadStripToApi(id, dataUrl).catch((err) =>
-      console.warn("Failed to upload strip to Nitro API:", err)
+      console.warn("Background strip upload warning:", err)
     );
 
-    // Also store base64 in server function memory as secondary backup
-    storeStripData({ data: { id, dataUrl } }).catch((err) =>
-      console.warn("Failed to store strip data on server:", err)
-    );
-
-    // Broadcast PHOTO_READY immediately with base64 dataUrl so tablet receives the photo strip instantly
+    // 6. Broadcast PHOTO_READY over P2P DataChannel if tablet is connected
     sendPusherEvent({
       data: {
         channel,
         event: "PHOTO_READY",
         data: { id, dataUrl },
       },
-    }).catch((err) => console.warn("Failed to broadcast PHOTO_READY:", err));
-
-    // Upload to Vercel Blob / local disk in background
-    uploadPhoto({ data: { id, dataUrl, eventName: s.eventName } }).catch((err) =>
-      console.error("Failed to upload/save photo in background:", err)
-    );
+    }).catch(() => {});
   }, [channel]);
 
 
