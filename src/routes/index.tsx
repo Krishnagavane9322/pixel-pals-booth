@@ -174,15 +174,32 @@ function Kiosk() {
   const onCapturedAll = useCallback(async (imgs: string[]) => {
     setPhotos(imgs);
     setScreen("processing");
-    const dataUrl = await buildStrip(imgs, getSettings());
+
     const id = uid();
     const s = getSettings();
-    
+
+    // Build the photo strip with a hard 20-second timeout so the "Creating Photo
+    // Strip" screen never freezes forever on slow devices or failed canvas ops.
+    let dataUrl: string;
+    try {
+      const buildPromise = buildStrip(imgs, s);
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("Strip build timeout after 20s")), 20000)
+      );
+      dataUrl = await Promise.race([buildPromise, timeoutPromise]);
+    } catch (err) {
+      console.error("[Strip] buildStrip failed or timed out — using first photo as fallback:", err);
+      // Fallback: use the first captured photo as the "strip" so the user isn't
+      // left on the stuck processing screen. It's not a composed strip but it lets
+      // them at least see and download one of their photos.
+      dataUrl = imgs[0] ?? "";
+    }
+
     // Save locally first (ensures print/download work immediately on laptop)
     saveStrip({ id, dataUrl, createdAt: Date.now(), eventName: s.eventName });
     setStrip({ id, dataUrl });
 
-    // Transition the laptop to preview immediately
+    // Transition the laptop to preview immediately — regardless of build success
     setScreen("preview");
 
     // Upload to Nitro API (/api/strip) — works 100% reliably on Vercel Serverless
@@ -510,7 +527,9 @@ function CameraScreen({
 
     const interval = setInterval(() => {
       if (!videoRef.current || !ctx || videoRef.current.readyState < 2) return;
-      // Skip HTTP snapshot broadcasts if WebRTC P2P video stream is connected
+      // Only skip snapshot broadcast when WebRTC is fully established ("connected").
+      // During "connecting" / "new" / "failed" / "disconnected" states we still
+      // broadcast so the tablet always has a live feed via the HTTP fallback path.
       if (peerRef.current?.connectionState === "connected") return;
 
       try {
@@ -528,7 +547,7 @@ function CameraScreen({
           },
         }).catch(() => {});
       } catch (e) {}
-    }, 1200);
+    }, 400); // 400ms — fast enough for a smooth live preview on the tablet
 
     return () => clearInterval(interval);
   }, [ready, channelName]);

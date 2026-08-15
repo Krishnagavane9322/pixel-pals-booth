@@ -218,6 +218,35 @@ function TabletRemote() {
     };
   }, [channelBus]);
 
+  // ── Watchdog: escape "processing" state if stuck for >20s ─────────────────
+  // If the kiosk's buildStrip call takes too long or the PHOTO_READY event is
+  // never received (e.g. serverless cold-start, lost SSE message), reset the
+  // tablet to welcome so it doesn't hang on the spinner forever.
+  useEffect(() => {
+    if (state !== "processing") return;
+    const timer = setTimeout(() => {
+      console.warn("[Tablet] Processing watchdog fired — resetting to welcome after 20s");
+      setState("welcome");
+      setStripUrl(null);
+      setCurrentStripId(null);
+    }, 20000);
+    return () => clearTimeout(timer);
+  }, [state]);
+
+  // ── Watchdog: escape "preview" state without a strip after >12s ───────────
+  // If preview is entered but the strip never arrives (fetch failed, SSE lost),
+  // reset to welcome rather than showing the infinite "AI is composing" spinner.
+  useEffect(() => {
+    if (state !== "preview" || stripUrl) return;
+    const timer = setTimeout(() => {
+      console.warn("[Tablet] Preview-without-strip watchdog fired — resetting to welcome after 12s");
+      setState("welcome");
+      setStripUrl(null);
+      setCurrentStripId(null);
+    }, 12000);
+    return () => clearTimeout(timer);
+  }, [state, stripUrl]);
+
   const triggerEvent = async (event: string, payload = {}) => {
     try {
       await sendPusherEvent({
@@ -618,7 +647,7 @@ function TabletRemote() {
                   <img
                     src={snapshotUrl}
                     alt="Live camera feed"
-                    className="absolute inset-0 w-full h-full object-cover z-5"
+                    className="absolute inset-0 w-full h-full object-cover z-[5]"
                   />
                 )}
 
