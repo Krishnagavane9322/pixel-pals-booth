@@ -72,10 +72,9 @@ function TabletRemote() {
 
     // 2. Fetch base64 via Nitro API /api/strip?id=<id> or getStripData({ data: id })
     if (id) {
-      const deadline = Date.now() + 20000; // 20s max
+      const deadline = Date.now() + 8000; // 8s max
       for (let attempt = 0; attempt < 20; attempt++) {
         if (Date.now() > deadline) {
-          // Failsafe: if strip never arrives after 20s, reset to welcome screen
           console.warn("[Tablet] Strip load timeout — resetting to welcome screen");
           setState("welcome");
           setStripUrl(null);
@@ -97,7 +96,7 @@ function TabletRemote() {
         } catch (err) {
           console.warn(`[Tablet] getStripData attempt ${attempt + 1} failed:`, err);
         }
-        await new Promise((r) => setTimeout(r, 500));
+        await new Promise((r) => setTimeout(r, 200));
       }
       // Still not found — reset to welcome
       console.warn("[Tablet] Strip load exhausted retries — resetting to welcome screen");

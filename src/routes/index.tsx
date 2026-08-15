@@ -716,7 +716,7 @@ function CameraScreen({
     const wait = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
     (async () => {
-      await wait(1200); // "Get Ready"
+      await wait(600); // brief "Get Ready" moment
       const numShots = settings.printLayout === "4x6" ? 4 : 3;
       for (let i = 0; i < numShots; i++) {
         if (cancelled) return;
@@ -750,17 +750,17 @@ function CameraScreen({
           },
         }).catch(() => {});
 
-        // 3. Wait 350ms for DSLR camera sensor & auto-exposure to adjust to bright white illumination
-        await wait(350);
+        // 3. Wait 150ms for camera sensor to adjust to bright white flash illumination
+        await wait(150);
         if (cancelled || !videoRef.current) return;
 
-        // 4. Capture 4K Ultra HD photo (waits for 2 fresh stable decoded frames after flash)
+        // 4. Capture photo (waitForFrames ensures sensor settled after flash)
         const img = await captureFromVideo(videoRef.current, cssFilter);
         photosRef.current.push(img);
         playShutterSound();
 
-        // 5. Keep flash active briefly then turn off
-        await wait(180);
+        // 5. Turn off flash quickly
+        await wait(80);
         setFlash(false);
         try {
           const track = streamRef.current?.getVideoTracks()[0];
@@ -775,7 +775,7 @@ function CameraScreen({
           }
         } catch (e) {}
 
-        await wait(400);
+        await wait(200);
       }
       if (!cancelled) onDone(photosRef.current);
     })();
