@@ -504,8 +504,9 @@ function CameraScreen({
     (async () => {
       try {
         const videoConstraints: MediaTrackConstraints = {
-          width: { ideal: 1920, min: 1280 },
-          height: { ideal: 1080, min: 720 },
+          width: { ideal: 3840, min: 1920 },
+          height: { ideal: 2160, min: 1080 },
+          frameRate: { ideal: 30 },
         };
 
         if (settings.cameraId) {
@@ -523,7 +524,7 @@ function CameraScreen({
           if (settings.cameraId) {
             console.warn("Selected camera failed, falling back to default camera:", deviceErr);
             stream = await navigator.mediaDevices.getUserMedia({
-              video: { facingMode: "user", width: { ideal: 1920, min: 1280 }, height: { ideal: 1080, min: 720 } },
+              video: { facingMode: "user", width: { ideal: 3840, min: 1920 }, height: { ideal: 2160, min: 1080 } },
               audio: false,
             });
           } else {
@@ -655,8 +656,20 @@ function CameraScreen({
         await runCountdown(i === 0 ? settings.countdownTime : settings.photoGap);
         if (cancelled || !videoRef.current) return;
 
-        // 1. Activate flash screen overlay FIRST so the screen illuminates the faces/room
+        // 1. Activate flash screen overlay + Hardware Camera Torch FIRST
         setFlash(true);
+        try {
+          const track = streamRef.current?.getVideoTracks()[0];
+          if (track && typeof (track as any).applyConstraints === "function") {
+            const caps = (typeof (track as any).getCapabilities === "function" ? (track as any).getCapabilities() : {}) as any;
+            if (caps.torch || caps.fillLightMode) {
+              const adv: any = {};
+              if (caps.torch) adv.torch = true;
+              if (caps.fillLightMode) adv.fillLightMode = "flash";
+              (track as any).applyConstraints({ advanced: [adv] }).catch(() => {});
+            }
+          }
+        } catch (e) {}
 
         // 2. Notify tablet to flash simultaneously
         sendPusherEvent({
@@ -667,11 +680,11 @@ function CameraScreen({
           },
         }).catch(() => {});
 
-        // 3. Wait 100ms for camera sensor to adjust to bright white illumination
-        await wait(100);
+        // 3. Wait 350ms for DSLR camera sensor & auto-exposure to adjust to bright white illumination
+        await wait(350);
         if (cancelled || !videoRef.current) return;
 
-        // 4. Capture high-quality photo under full flash light
+        // 4. Capture 4K Ultra HD photo under full flash light
         const img = captureFromVideo(videoRef.current, cssFilter);
         photosRef.current.push(img);
         playShutterSound();
@@ -679,6 +692,18 @@ function CameraScreen({
         // 5. Keep flash active briefly then turn off
         await wait(180);
         setFlash(false);
+        try {
+          const track = streamRef.current?.getVideoTracks()[0];
+          if (track && typeof (track as any).applyConstraints === "function") {
+            const caps = (typeof (track as any).getCapabilities === "function" ? (track as any).getCapabilities() : {}) as any;
+            if (caps.torch || caps.fillLightMode) {
+              const adv: any = {};
+              if (caps.torch) adv.torch = false;
+              if (caps.fillLightMode) adv.fillLightMode = "off";
+              (track as any).applyConstraints({ advanced: [adv] }).catch(() => {});
+            }
+          }
+        } catch (e) {}
 
         await wait(400);
       }

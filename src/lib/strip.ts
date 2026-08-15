@@ -353,7 +353,7 @@ export async function buildStrip(
     }
   }
 
-  return canvas.toDataURL("image/jpeg", 0.94);
+  return canvas.toDataURL("image/jpeg", 1.0);
 }
 
 function loadImg(src: string): Promise<HTMLImageElement> {
@@ -399,13 +399,16 @@ function drawCover(
 
 export function captureFromVideo(video: HTMLVideoElement, cssFilter?: string): string {
   const c = document.createElement("canvas");
-  const vw = video.videoWidth || 1280;
-  const vh = video.videoHeight || 720;
+  const vw = video.videoWidth || 1920;
+  const vh = video.videoHeight || 1080;
 
-  // Capture full frame — no forced crop, let the strip layout handle aspect ratio
+  // Capture full frame native DSLR resolution — no forced crop
   c.width = vw;
   c.height = vh;
-  const ctx = c.getContext("2d")!;
+  const ctx = c.getContext("2d", { alpha: false })!;
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
+
   // mirror horizontally (selfie view)
   ctx.translate(c.width, 0);
   ctx.scale(-1, 1);
@@ -413,6 +416,6 @@ export function captureFromVideo(video: HTMLVideoElement, cssFilter?: string): s
     ctx.filter = cssFilter;
   }
   ctx.drawImage(video, 0, 0, vw, vh);
-  return c.toDataURL("image/jpeg", 0.94);
+  return c.toDataURL("image/jpeg", 1.0);
 }
 
