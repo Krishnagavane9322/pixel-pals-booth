@@ -81,10 +81,15 @@ export function listStrips(): StripRecord[] {
   try { return JSON.parse(localStorage.getItem(STRIPS_KEY) || "[]"); } catch { return []; }
 }
 export function saveStrip(rec: StripRecord) {
-  const list = listStrips();
-  // Keep last 20 to avoid storage blowup
-  const next = [rec, ...list].slice(0, 20);
-  localStorage.setItem(STRIPS_KEY, JSON.stringify(next));
+  if (!isBrowser()) return;
+  try {
+    const list = listStrips();
+    // Keep last 3 strips in localStorage to stay safely under the 5MB browser quota
+    const next = [rec, ...list].slice(0, 3);
+    localStorage.setItem(STRIPS_KEY, JSON.stringify(next));
+  } catch (e) {
+    console.warn("[Storage] localStorage quota reached — strip skipped in local history:", e);
+  }
 }
 export function getStrip(id: string): StripRecord | undefined {
   return listStrips().find((s) => s.id === id);
@@ -92,15 +97,19 @@ export function getStrip(id: string): StripRecord | undefined {
 
 export function logPrint(id: string) {
   if (!isBrowser()) return;
-  const list = JSON.parse(localStorage.getItem(PRINTS_KEY) || "[]");
-  list.unshift({ id, at: Date.now() });
-  localStorage.setItem(PRINTS_KEY, JSON.stringify(list.slice(0, 100)));
+  try {
+    const list = JSON.parse(localStorage.getItem(PRINTS_KEY) || "[]");
+    list.unshift({ id, at: Date.now() });
+    localStorage.setItem(PRINTS_KEY, JSON.stringify(list.slice(0, 100)));
+  } catch {}
 }
 export function logDownload(id: string) {
   if (!isBrowser()) return;
-  const list = JSON.parse(localStorage.getItem(DLS_KEY) || "[]");
-  list.unshift({ id, at: Date.now() });
-  localStorage.setItem(DLS_KEY, JSON.stringify(list.slice(0, 100)));
+  try {
+    const list = JSON.parse(localStorage.getItem(DLS_KEY) || "[]");
+    list.unshift({ id, at: Date.now() });
+    localStorage.setItem(DLS_KEY, JSON.stringify(list.slice(0, 100)));
+  } catch {}
 }
 
 export function uid() {

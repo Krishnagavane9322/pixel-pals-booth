@@ -206,12 +206,12 @@ function Kiosk() {
       dataUrl = imgs[0] ?? "";
     }
 
-    // 2. Save locally in browser localStorage (instant)
-    saveStrip({ id, dataUrl, createdAt: Date.now(), eventName: s.eventName });
+    // 2. Set state & transition laptop UI to preview IMMEDIATELY
     setStrip({ id, dataUrl });
-
-    // 3. Immediately transition the laptop kiosk UI to the preview screen!
     setScreen("preview");
+
+    // 3. Save locally in browser localStorage (guarded against QuotaExceededError)
+    saveStrip({ id, dataUrl, createdAt: Date.now(), eventName: s.eventName });
 
     // 4. Update /api/session so tablet knows the strip is ready
     postSessionState("preview", id);
