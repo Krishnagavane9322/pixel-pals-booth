@@ -754,8 +754,8 @@ function CameraScreen({
         await wait(350);
         if (cancelled || !videoRef.current) return;
 
-        // 4. Capture 4K Ultra HD photo under full flash light
-        const img = captureFromVideo(videoRef.current, cssFilter);
+        // 4. Capture 4K Ultra HD photo (waits for 2 fresh stable decoded frames after flash)
+        const img = await captureFromVideo(videoRef.current, cssFilter);
         photosRef.current.push(img);
         playShutterSound();
 

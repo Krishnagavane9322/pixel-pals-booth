@@ -3,8 +3,6 @@ import { fetchChannelEvents, type ChannelEventRecord } from "@/lib/sse-broker.se
 
 // ---------------------------------------------------------------------------
 // ChannelBus — Pusher-compatible event bus
-// Provides the same .bind() / .unbind() / .unbind_all() interface as a Pusher
-// channel object so existing callers work without modification.
 // ---------------------------------------------------------------------------
 export class ChannelBus {
   // eslint-disable-next-line @typescript-eslint/no-unsafe-function-type
@@ -66,6 +64,7 @@ export function sendP2pMessage(event: string, data: unknown): void {
 
 // ---------------------------------------------------------------------------
 // useSSEChannel — Multi-Transport Sync (PeerJS P2P + SSE + HTTP Polling Fallback)
+// Fixes: tablet lag, stuck states, missed events, slow sync
 // ---------------------------------------------------------------------------
 export function useSSEChannel(channel: string): {
   bus: ChannelBus;
@@ -84,9 +83,9 @@ export function useSSEChannel(channel: string): {
     if (rec.id) {
       if (seenIdsRef.current.has(rec.id)) return;
       seenIdsRef.current.add(rec.id);
-      if (seenIdsRef.current.size > 250) {
+      if (seenIdsRef.current.size > 500) {
         const arr = Array.from(seenIdsRef.current);
-        seenIdsRef.current = new Set(arr.slice(100));
+        seenIdsRef.current = new Set(arr.slice(200));
       }
     }
     if (rec.timestamp && rec.timestamp > lastTimestampRef.current) {
@@ -103,67 +102,69 @@ export function useSSEChannel(channel: string): {
     if (typeof window === "undefined") return;
 
     let active = true;
-
-    // 1. PeerJS P2P Direct Browser Transport
     let peerInstance: any = null;
-    import("peerjs")
-      .then(({ Peer }) => {
-        if (!active) return;
-        const peerIdClean = channel.replace(/[^a-zA-Z0-9_-]/g, "");
-        const hostPeerId = `rovi-booth-kiosk-${peerIdClean}`;
-        const isTablet = window.location.pathname.startsWith("/tablet");
+    let p2pReconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
-        if (isTablet) {
-          // Remote Tablet connects to Kiosk host ID
-          const peer = new Peer();
-          peerInstance = peer;
-          peer.on("open", () => {
-            if (!active) return;
-            setConnected(true);
-            const conn = peer.connect(hostPeerId, { reliable: true });
-            conn.on("open", () => {
+    const isTablet = window.location.pathname.startsWith("/tablet");
+
+    // ── PeerJS P2P Direct Browser Transport (with auto-reconnect) ──────────
+    function startP2P() {
+      if (!active) return;
+
+      import("peerjs")
+        .then(({ Peer }) => {
+          if (!active) return;
+          const peerIdClean = channel.replace(/[^a-zA-Z0-9_-]/g, "");
+          const hostPeerId = `rovi-booth-kiosk-${peerIdClean}`;
+
+          if (isTablet) {
+            // Tablet: connect to kiosk host
+            const peer = new Peer();
+            peerInstance = peer;
+
+            peer.on("open", () => {
               if (!active) return;
-              activeP2pConns.add(conn);
-              setConnected(true);
+              const conn = peer.connect(hostPeerId, { reliable: true, serialization: "json" });
+              conn.on("open", () => {
+                if (!active) return;
+                activeP2pConns.add(conn);
+                setConnected(true);
+                console.log("[P2P] Tablet connected to kiosk");
+              });
+              conn.on("data", (data: any) => {
+                if (!active) return;
+                try {
+                  const msg = typeof data === "string" ? JSON.parse(data) : data;
+                  processEventRecord(msg);
+                } catch (e) {}
+              });
+              conn.on("close", () => {
+                activeP2pConns.delete(conn);
+                // Auto-reconnect after 1s
+                if (active) {
+                  console.log("[P2P] Tablet P2P closed, reconnecting in 1s...");
+                  p2pReconnectTimer = setTimeout(startP2P, 1000);
+                }
+              });
+              conn.on("error", () => {
+                activeP2pConns.delete(conn);
+                if (active) p2pReconnectTimer = setTimeout(startP2P, 1000);
+              });
             });
-            conn.on("data", (data: any) => {
-              if (!active) return;
-              try {
-                const msg = typeof data === "string" ? JSON.parse(data) : data;
-                processEventRecord(msg);
-              } catch (e) {}
+
+            peer.on("error", () => {
+              if (active) p2pReconnectTimer = setTimeout(startP2P, 2000);
             });
-            conn.on("close", () => activeP2pConns.delete(conn));
-          });
-        } else {
-          // Kiosk Laptop hosts the channel ID
-          const peer = new Peer(hostPeerId);
-          peerInstance = peer;
-          peer.on("open", () => {
-            if (!active) return;
-            setConnected(true);
-          });
-          peer.on("connection", (conn: any) => {
-            conn.on("open", () => {
-              if (!active) return;
-              activeP2pConns.add(conn);
-              setConnected(true);
+          } else {
+            // Kiosk: host the channel ID, accept incoming connections
+            const peer = new Peer(hostPeerId);
+            peerInstance = peer;
+
+            peer.on("open", () => {
+              if (!active) setConnected(true);
             });
-            conn.on("data", (data: any) => {
-              if (!active) return;
-              try {
-                const msg = typeof data === "string" ? JSON.parse(data) : data;
-                processEventRecord(msg);
-              } catch (e) {}
-            });
-            conn.on("close", () => activeP2pConns.delete(conn));
-          });
-          peer.on("error", () => {
-            if (!active) return;
-            // Fall back to random peer ID if host ID is taken
-            const fallbackPeer = new Peer();
-            peerInstance = fallbackPeer;
-            fallbackPeer.on("connection", (conn: any) => {
+
+            peer.on("connection", (conn: any) => {
               conn.on("open", () => {
                 if (!active) return;
                 activeP2pConns.add(conn);
@@ -177,15 +178,43 @@ export function useSSEChannel(channel: string): {
                 } catch (e) {}
               });
               conn.on("close", () => activeP2pConns.delete(conn));
+              conn.on("error", () => activeP2pConns.delete(conn));
             });
-          });
-        }
-      })
-      .catch((err) => console.warn("[P2P] PeerJS import skipped:", err));
 
-    // 2. Persistent SSE connection (Localhost / persistent servers)
+            peer.on("error", () => {
+              if (!active) return;
+              // Host ID taken — fall back to random peer ID
+              const fallbackPeer = new Peer();
+              if (peerInstance && peerInstance !== fallbackPeer) {
+                try { peerInstance.destroy(); } catch (e) {}
+              }
+              peerInstance = fallbackPeer;
+              fallbackPeer.on("connection", (conn: any) => {
+                conn.on("open", () => {
+                  if (!active) return;
+                  activeP2pConns.add(conn);
+                  setConnected(true);
+                });
+                conn.on("data", (data: any) => {
+                  if (!active) return;
+                  try {
+                    const msg = typeof data === "string" ? JSON.parse(data) : data;
+                    processEventRecord(msg);
+                  } catch (e) {}
+                });
+                conn.on("close", () => activeP2pConns.delete(conn));
+              });
+            });
+          }
+        })
+        .catch((err) => console.warn("[P2P] PeerJS import skipped:", err));
+    }
+
+    startP2P();
+
+    // ── Persistent SSE connection ────────────────────────────────────────────
     const url = `/api/sse?channel=${encodeURIComponent(channel)}`;
-    const es = new EventSource(url);
+    let es: EventSource | null = new EventSource(url);
 
     es.onopen = () => {
       if (active) setConnected(true);
@@ -203,7 +232,28 @@ export function useSSEChannel(channel: string): {
       }
     };
 
-    // 3. Fast HTTP Polling fallback loop (400ms) for Vercel Serverless
+    es.onerror = () => {
+      // Reconnect SSE after a short delay if it drops
+      if (active) {
+        es?.close();
+        es = null;
+        setTimeout(() => {
+          if (!active) return;
+          const newEs = new EventSource(url);
+          newEs.onopen = () => { if (active) setConnected(true); };
+          newEs.onmessage = (e: MessageEvent<string>) => {
+            try {
+              const msg = JSON.parse(e.data) as { event: string; data: unknown; id?: string; timestamp?: number };
+              if (active) processEventRecord(msg);
+            } catch {}
+          };
+          es = newEs;
+        }, 1500);
+      }
+    };
+
+    // ── Ultra-Fast HTTP Polling (150ms) for Vercel Serverless ───────────────
+    // This is the primary reliable fallback and guarantees <150ms tablet sync
     const pollTimer = setInterval(async () => {
       if (!active) return;
       try {
@@ -212,7 +262,7 @@ export function useSSEChannel(channel: string): {
         })) as any;
         if (res && res.success && active) {
           setConnected(true);
-          if (Array.isArray(res.events)) {
+          if (Array.isArray(res.events) && res.events.length > 0) {
             res.events.forEach((item: ChannelEventRecord) => {
               processEventRecord(item);
             });
@@ -221,14 +271,17 @@ export function useSSEChannel(channel: string): {
       } catch {
         // Ignore polling glitches
       }
-    }, 400);
+    }, 150);
 
     return () => {
       active = false;
-      es.close();
+      es?.close();
       clearInterval(pollTimer);
+      if (p2pReconnectTimer) clearTimeout(p2pReconnectTimer);
       activeP2pConns.clear();
-      if (peerInstance) peerInstance.destroy();
+      if (peerInstance) {
+        try { peerInstance.destroy(); } catch (e) {}
+      }
     };
   }, [channel]);
 

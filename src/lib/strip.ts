@@ -399,7 +399,30 @@ function drawCover(
   ctx.drawImage(img, sx, sy, sw, sh, x, y, w, h);
 }
 
-export function captureFromVideo(video: HTMLVideoElement, cssFilter?: string): string {
+// Wait for N fresh decoded frames from the video element
+function waitForFrames(video: HTMLVideoElement, frameCount = 2): Promise<void> {
+  return new Promise((resolve) => {
+    // requestVideoFrameCallback is available in Chrome 83+ and Edge
+    if (typeof (video as any).requestVideoFrameCallback === "function") {
+      let remaining = frameCount;
+      const tick = () => {
+        remaining -= 1;
+        if (remaining <= 0) resolve();
+        else (video as any).requestVideoFrameCallback(tick);
+      };
+      (video as any).requestVideoFrameCallback(tick);
+    } else {
+      // Fallback: wait 80ms per frame
+      setTimeout(resolve, frameCount * 80);
+    }
+  });
+}
+
+export async function captureFromVideo(video: HTMLVideoElement, cssFilter?: string): Promise<string> {
+  // Wait for 2 stable decoded frames so the camera sensor, auto-exposure,
+  // and auto-focus have fully settled AFTER the flash fired.
+  await waitForFrames(video, 2);
+
   const c = document.createElement("canvas");
   const vw = video.videoWidth || 1920;
   const vh = video.videoHeight || 1080;
@@ -417,8 +440,8 @@ export function captureFromVideo(video: HTMLVideoElement, cssFilter?: string): s
   if (cssFilter) {
     ctx.filter = cssFilter;
   } else {
-    // Subtle sharpness & color pop enhancement filter for DSLR/Webcam stills
-    ctx.filter = "contrast(1.04) saturate(1.05)";
+    // Subtle clarity enhancement: contrast + saturation pop for DSLR/Webcam stills
+    ctx.filter = "contrast(1.05) saturate(1.08)";
   }
   ctx.drawImage(video, 0, 0, vw, vh);
   return c.toDataURL("image/jpeg", 1.0);
