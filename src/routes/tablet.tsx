@@ -331,11 +331,20 @@ function TabletRemote() {
       return;
     }
 
-    if (!connected) return; // wait until SSE is connected
+    let active = true;
+    let lastSignalTs = 0;
 
-    // Tell the laptop we're ready to receive the video stream
+    const postSignal = (type: string, data: any) => {
+      fetch(`/api/signal?channel=${encodeURIComponent(channel)}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type, data }),
+      }).catch(() => {});
+      sendPusherEvent({ data: { channel, event: type, data } }).catch(console.warn);
+    };
+
     console.log("[WebRTC] Sending VIEWER_READY to laptop");
-    sendPusherEvent({ data: { channel, event: "VIEWER_READY", data: {} } }).catch(console.warn);
+    postSignal("VIEWER_READY", {});
 
     const handleSdpOffer = async (msg: { sdp: { type: RTCSdpType; sdp: string } }) => {
       console.log("[WebRTC] SDP offer received — creating answer");
@@ -345,6 +354,7 @@ function TabletRemote() {
         iceServers: [
           { urls: "stun:stun.l.google.com:19302" },
           { urls: "stun:stun1.l.google.com:19302" },
+          { urls: "stun:stun2.l.google.com:19302" },
         ],
       });
       tabletPeerRef.current = pc;
@@ -368,9 +378,7 @@ function TabletRemote() {
 
       pc.onicecandidate = (e) => {
         if (e.candidate) {
-          sendPusherEvent({
-            data: { channel, event: "ICE_VIEWER", data: { candidate: e.candidate.toJSON() } },
-          }).catch(console.warn);
+          postSignal("ICE_VIEWER", { candidate: e.candidate.toJSON() });
         }
       };
 
@@ -383,13 +391,7 @@ function TabletRemote() {
         const answer = await pc.createAnswer();
         await pc.setLocalDescription(answer);
         console.log("[WebRTC] SDP answer sent to laptop");
-        await sendPusherEvent({
-          data: {
-            channel,
-            event: "SDP_ANSWER",
-            data: { sdp: { type: pc.localDescription!.type, sdp: pc.localDescription!.sdp } },
-          },
-        });
+        postSignal("SDP_ANSWER", { sdp: { type: pc.localDescription!.type, sdp: pc.localDescription!.sdp } });
       } catch (err) {
         console.warn("WebRTC answer failed on tablet:", err);
       }
@@ -412,7 +414,28 @@ function TabletRemote() {
     channelBus.bind("SDP_OFFER", handleSdpOffer);
     channelBus.bind("ICE_HOST", handleIceHost);
 
+    // Poll /api/signal for SDP_OFFER and ICE_HOST from laptop
+    const pollSignal = async () => {
+      if (!active) return;
+      try {
+        const res = await fetch(`/api/signal?channel=${encodeURIComponent(channel)}&since=${lastSignalTs}`);
+        if (!res.ok || !active) return;
+        const json = await res.json();
+        if (json.success && Array.isArray(json.signals)) {
+          for (const item of json.signals) {
+            if (item.ts > lastSignalTs) lastSignalTs = item.ts;
+            if (item.type === "SDP_OFFER") handleSdpOffer(item.data);
+            if (item.type === "ICE_HOST") handleIceHost(item.data);
+          }
+        }
+      } catch {}
+    };
+
+    const signalInterval = setInterval(pollSignal, 800);
+
     return () => {
+      active = false;
+      clearInterval(signalInterval);
       channelBus.unbind("SDP_OFFER", handleSdpOffer);
       channelBus.unbind("ICE_HOST", handleIceHost);
       tabletPeerRef.current?.close();
@@ -733,7 +756,7 @@ function TabletRemote() {
                   playsInline
                   muted
                   className={`absolute inset-0 w-full h-full object-cover z-10 transition-opacity duration-300 ${hasWebRtcVideo ? "opacity-100" : "opacity-0"}`}
-                  style={{ transform: "scaleX(-1)" }}
+                  style={{ transform: "scaleX(-1) translateZ(0)", willChange: "transform, opacity" }}
                 />
 
                 {/* Fallback live snapshot stream if WebRTC is unavailable */}
@@ -742,6 +765,7 @@ function TabletRemote() {
                     src={snapshotUrl}
                     alt="Live camera feed"
                     className="absolute inset-0 w-full h-full object-cover z-[5]"
+                    style={{ transform: "translateZ(0)", willChange: "src, transform" }}
                   />
                 )}
 

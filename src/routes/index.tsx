@@ -432,9 +432,19 @@ function CameraScreen({
   useEffect(() => {
     if (!ready) return;
     const pCh = pusherChannelRef.current;
-    if (!pCh) return;
-
     let active = true;
+    let lastSignalTs = 0;
+
+    const postSignal = (type: string, data: any) => {
+      fetch(`/api/signal?channel=${encodeURIComponent(channelName)}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type, data }),
+      }).catch(() => {});
+      sendPusherEvent({
+        data: { channel: channelName, event: type, data },
+      }).catch(() => {});
+    };
 
     // Core function: create RTCPeerConnection, add camera tracks, send SDP offer
     const initiateStream = async () => {
@@ -450,6 +460,7 @@ function CameraScreen({
         iceServers: [
           { urls: "stun:stun.l.google.com:19302" },
           { urls: "stun:stun1.l.google.com:19302" },
+          { urls: "stun:stun2.l.google.com:19302" },
         ],
       });
       peerRef.current = pc;
@@ -457,9 +468,7 @@ function CameraScreen({
 
       pc.onicecandidate = (e) => {
         if (e.candidate && active) {
-          sendPusherEvent({
-            data: { channel: channelName, event: "ICE_HOST", data: { candidate: e.candidate.toJSON() } },
-          }).catch(console.warn);
+          postSignal("ICE_HOST", { candidate: e.candidate.toJSON() });
         }
       };
 
@@ -467,28 +476,15 @@ function CameraScreen({
         const offer = await pc.createOffer();
         await pc.setLocalDescription(offer);
         if (!active) return;
-        await sendPusherEvent({
-          data: {
-            channel: channelName,
-            event: "SDP_OFFER",
-            data: { sdp: { type: pc.localDescription!.type, sdp: pc.localDescription!.sdp } },
-          },
-        });
-        console.log("[WebRTC] SDP offer sent to tablet");
+        postSignal("SDP_OFFER", { sdp: { type: pc.localDescription!.type, sdp: pc.localDescription!.sdp } });
+        console.log("[WebRTC] SDP offer sent to tablet via /api/signal & P2P");
       } catch (err) {
         console.warn("WebRTC offer failed:", err);
       }
     };
 
-    // ── KEY FIX ─────────────────────────────────────────────────────────────
-    // Proactively send the offer as soon as camera is ready.
-    // The previous code only sent on VIEWER_READY, but that signal fires
-    // BEFORE the laptop camera is initialized, so it was always missed.
-    // ────────────────────────────────────────────────────────────────────────
     initiateStream();
 
-    // Also re-initiate if the tablet connects after the laptop is already ready
-    // (e.g. tablet opened /tablet URL while camera was already live)
     const handleViewerReady = () => {
       console.log("[WebRTC] VIEWER_READY received — re-initiating stream");
       initiateStream();
@@ -523,55 +519,84 @@ function CameraScreen({
       }
     };
 
-    pCh.bind("VIEWER_READY", handleViewerReady);
-    pCh.bind("SDP_ANSWER", handleSdpAnswer);
-    pCh.bind("ICE_VIEWER", handleIceViewer);
+    if (pCh) {
+      pCh.bind("VIEWER_READY", handleViewerReady);
+      pCh.bind("SDP_ANSWER", handleSdpAnswer);
+      pCh.bind("ICE_VIEWER", handleIceViewer);
+    }
+
+    // Poll /api/signal for WebRTC answers and viewer candidates
+    const pollSignal = async () => {
+      if (!active) return;
+      try {
+        const res = await fetch(`/api/signal?channel=${encodeURIComponent(channelName)}&since=${lastSignalTs}`);
+        if (!res.ok || !active) return;
+        const json = await res.json();
+        if (json.success && Array.isArray(json.signals)) {
+          for (const item of json.signals) {
+            if (item.ts > lastSignalTs) lastSignalTs = item.ts;
+            if (item.type === "VIEWER_READY") handleViewerReady();
+            if (item.type === "SDP_ANSWER") handleSdpAnswer(item.data);
+            if (item.type === "ICE_VIEWER") handleIceViewer(item.data);
+          }
+        }
+      } catch {}
+    };
+
+    const signalInterval = setInterval(pollSignal, 800);
 
     return () => {
       active = false;
-      pCh.unbind("VIEWER_READY", handleViewerReady);
-      pCh.unbind("SDP_ANSWER", handleSdpAnswer);
-      pCh.unbind("ICE_VIEWER", handleIceViewer);
+      clearInterval(signalInterval);
+      if (pCh) {
+        pCh.unbind("VIEWER_READY", handleViewerReady);
+        pCh.unbind("SDP_ANSWER", handleSdpAnswer);
+        pCh.unbind("ICE_VIEWER", handleIceViewer);
+      }
       peerRef.current?.close();
       peerRef.current = null;
     };
   }, [ready, channelName]);
 
-  // Live camera frame relay — direct POST to /api/frame (bypasses SSE broker)
-  // This is the primary fallback path when WebRTC is not available.
-  // /api/frame is a simple key-value store: POST writes, GET reads.
-  // At 150ms intervals (≈6fps) the tablet sees a near-realtime preview.
+  // High-quality live camera frame relay — direct POST to /api/frame
+  // Provides sharp, non-blurry 480x360 preview when WebRTC direct video stream is establishing
   useEffect(() => {
     if (!ready) return;
 
-    // Smaller canvas = smaller payload = lower network latency
     const canvas = document.createElement("canvas");
-    canvas.width = 240;  // was 320
-    canvas.height = 180; // was 240
-    const ctx = canvas.getContext("2d");
+    canvas.width = 480;  // 480x360: sharp & crisp on high-res tablet screens
+    canvas.height = 360;
+    const ctx = canvas.getContext("2d", { alpha: false });
 
-    const interval = setInterval(() => {
+    let isPosting = false; // Lock to prevent HTTP request queueing & buffer bloat
+
+    const interval = setInterval(async () => {
       if (!videoRef.current || !ctx || videoRef.current.readyState < 2) return;
-      // Skip only when WebRTC is fully connected (real-time stream active)
+      // Skip snapshot POSTs once WebRTC direct P2P stream is active
       if (peerRef.current?.connectionState === "connected") return;
+      if (isPosting) return; // Skip tick if previous upload is still in flight
 
       try {
+        isPosting = true;
         ctx.save();
-        ctx.translate(240, 0);
+        ctx.translate(480, 0);
         ctx.scale(-1, 1);
-        ctx.drawImage(videoRef.current, 0, 0, 240, 180);
+        ctx.drawImage(videoRef.current, 0, 0, 480, 360);
         ctx.restore();
-        // 0.25 quality at 240x180 ≈ 6–10KB — fast to transfer at 150ms
-        const frameData = canvas.toDataURL("image/jpeg", 0.25);
 
-        // PRIMARY: POST directly to /api/frame — no SSE broker, no sendPusherEvent overhead
-        fetch(`/api/frame?channel=${encodeURIComponent(channelName)}`, {
+        // 0.55 quality at 480x360: crisp image details with reasonable size (~25-35KB)
+        const frameData = canvas.toDataURL("image/jpeg", 0.55);
+
+        await fetch(`/api/frame?channel=${encodeURIComponent(channelName)}`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ frame: frameData }),
-        }).catch(() => {});
-      } catch (e) {}
-    }, 150); // 150ms ≈ 6fps — smooth enough for a live preview
+        });
+      } catch (e) {
+      } finally {
+        isPosting = false;
+      }
+    }, 180); // 180ms (~5.5 fps) with async lock keeps network smooth and non-blocking
 
     return () => clearInterval(interval);
   }, [ready, channelName]);
