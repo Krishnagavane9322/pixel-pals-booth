@@ -597,7 +597,7 @@ function TabletRemote() {
                       >
                         📷
                       </motion.div>
-                      <p className="text-sm font-medium">Connecting to camera…</p>
+                      <p className="text-sm font-bold tracking-wider text-accent uppercase">Get Ready!</p>
                     </div>
                   </>
                 )}

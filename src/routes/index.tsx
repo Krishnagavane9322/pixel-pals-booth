@@ -784,8 +784,8 @@ function CameraScreen({
             style={{ transform: `scaleX(-1) scale(${settings.photoZoom || 1.0})`, filter: cssFilter }}
           />
           {!ready && !error && (
-            <div className="absolute inset-0 flex items-center justify-center text-muted-foreground">
-              Requesting camera…
+            <div className="absolute inset-0 flex items-center justify-center text-sm font-bold tracking-wider text-accent uppercase">
+              Get Ready!
             </div>
           )}
           {error && (
