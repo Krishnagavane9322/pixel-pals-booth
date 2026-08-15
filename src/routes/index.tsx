@@ -165,6 +165,7 @@ function Kiosk() {
           enableQR: settings.enableQR,
           stripId: strip?.id || null,
           stripUrl: currentStripUrl,
+          settings: settings,
         },
       },
     }).catch((err) => console.warn("Failed to broadcast state change:", err));

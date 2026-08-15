@@ -126,6 +126,24 @@ function TabletRemote() {
       if (msg.enableQR !== undefined) setEnableQR(msg.enableQR);
       if (msg.stripId) setCurrentStripId(msg.stripId);
 
+      // Sync settings to local tablet state
+      if ((msg as any).settings) {
+        saveSettings((msg as any).settings);
+        setSettings((msg as any).settings);
+      } else {
+        const patch: Partial<Settings> = {};
+        if (msg.eventName) patch.eventName = msg.eventName;
+        if (msg.printLayout) patch.printLayout = msg.printLayout as "2x6" | "4x6";
+        if ((msg as any).theme) patch.theme = (msg as any).theme;
+        if (msg.enablePrint !== undefined) patch.enablePrint = msg.enablePrint;
+        if (msg.enableQR !== undefined) patch.enableQR = msg.enableQR;
+        if (Object.keys(patch).length > 0) {
+          const next = { ...getSettings(), ...patch };
+          saveSettings(next);
+          setSettings(next);
+        }
+      }
+
       if (msg.screen === "preview" && (msg.stripId || msg.stripUrl)) {
         loadStripForTablet(msg.stripId, msg.stripUrl);
       }
