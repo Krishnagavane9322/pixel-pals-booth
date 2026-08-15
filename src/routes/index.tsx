@@ -555,8 +555,9 @@ function CameraScreen({
     };
   }, [ready, channelName]);
 
-  // High-quality live camera frame relay — direct POST to /api/frame
-  // Provides sharp 360x270 preview (~14KB) when WebRTC direct video stream is establishing
+  // Live camera frame relay — dual transport (PeerJS P2P + /api/frame POST)
+  // 1. sendPusherEvent transmits instantly via PeerJS DataChannel (10ms P2P)
+  // 2. /api/frame POST persists to server /tmp so tablet polling receives it
   useEffect(() => {
     if (!ready) return;
 
@@ -565,13 +566,13 @@ function CameraScreen({
     canvas.height = 270;
     const ctx = canvas.getContext("2d", { alpha: false });
 
-    let isPosting = false; // Lock to prevent HTTP request queueing & buffer bloat
+    let isPosting = false; // Lock to prevent HTTP request queueing
 
     const interval = setInterval(async () => {
       if (!videoRef.current || !ctx || videoRef.current.readyState < 2) return;
-      // Skip snapshot POSTs once WebRTC direct P2P stream is active
+      // Skip snapshot POSTs once WebRTC direct P2P video stream is active
       if (peerRef.current?.connectionState === "connected") return;
-      if (isPosting) return; // Skip tick if previous upload is still in flight
+      if (isPosting) return;
 
       try {
         isPosting = true;
@@ -581,9 +582,19 @@ function CameraScreen({
         ctx.drawImage(videoRef.current, 0, 0, 360, 270);
         ctx.restore();
 
-        // 0.45 quality at 360x270: crisp image details with fast transfer size (~14KB)
+        // 0.45 quality at 360x270: crisp image details (~14KB)
         const frameData = canvas.toDataURL("image/jpeg", 0.45);
 
+        // 1. PeerJS P2P direct DataChannel transmission (10ms latency)
+        sendPusherEvent({
+          data: {
+            channel: channelName,
+            event: "CAMERA_FRAME",
+            data: { frame: frameData },
+          },
+        }).catch(() => {});
+
+        // 2. HTTP POST to /api/frame (persists to /tmp for Vercel cross-lambda polling)
         await fetch(`/api/frame?channel=${encodeURIComponent(channelName)}`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -593,7 +604,7 @@ function CameraScreen({
       } finally {
         isPosting = false;
       }
-    }, 160); // 160ms (~6 fps) with async lock keeps network smooth and non-blocking
+    }, 160); // 160ms (~6 fps) keeps live preview smooth and fast
 
     return () => clearInterval(interval);
   }, [ready, channelName]);
