@@ -13,6 +13,16 @@ export default defineConfig({
       ignored: ["**/public/photos/**"],
     },
   },
+  nitro: {
+    // Register the SSE streaming endpoint as a Nitro server handler
+    handlers: [
+      {
+        route: "/api/sse",
+        handler: "./server/routes/api/sse.ts",
+        method: "GET",
+      },
+    ],
+  },
   plugins: [
     tailwindcss(),
     tsconfigPaths(),

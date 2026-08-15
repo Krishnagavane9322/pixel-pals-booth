@@ -11,7 +11,7 @@ import {
 import { buildStrip, captureFromVideo } from "@/lib/strip";
 import { uploadPhoto, storeStripData } from "@/lib/server-storage";
 import { speak, playShutterSound, stopSpeaking } from "@/lib/audio";
-import Pusher from "pusher-js";
+import { useSSEChannel } from "@/lib/sse-client";
 import { sendPusherEvent } from "@/lib/pusher";
 import { z } from "zod";
 
@@ -41,8 +41,12 @@ function Kiosk() {
   const [adminOpen, setAdminOpen] = useState(false);
   const [settings, setSettings] = useState<Settings>(() => getSettings());
 
-  const wsRef = useRef<Pusher | null>(null);
+  const { bus: channelBus } = useSSEChannel(channel);
+  // Keep pusherChannelRef pointing at the ChannelBus so CameraScreen's
+  // WebRTC bind/unbind calls work without modification.
   const pusherChannelRef = useRef<any>(null);
+  pusherChannelRef.current = channelBus;
+
   const printTriggerRef = useRef<(() => void) | null>(null);
   const [tabletQr, setTabletQr] = useState<string>("");
   const [cameraState, setCameraState] = useState<{ count: number | null; shotIdx: number; flash: boolean }>({
@@ -50,9 +54,6 @@ function Kiosk() {
     shotIdx: 0,
     flash: false,
   });
-
-  const PUSHER_KEY = import.meta.env.VITE_PUSHER_KEY;
-  const PUSHER_CLUSTER = import.meta.env.VITE_PUSHER_CLUSTER;
 
   // Refresh settings whenever we leave admin
   useEffect(() => { if (!adminOpen) setSettings(getSettings()); }, [adminOpen]);
@@ -85,54 +86,26 @@ function Kiosk() {
     }
   }, [channel]);
 
-  // Connect to Pusher on Laptop Kiosk
+  // Bind kiosk control events from the tablet remote over SSE
   useEffect(() => {
-    if (!PUSHER_KEY || !PUSHER_CLUSTER) {
-      console.warn("Pusher keys not configured. Wireless remote control is disabled.");
-      return;
-    }
+    const handleStart = () => start();
+    const handlePrint = () => { if (printTriggerRef.current) printTriggerRef.current(); };
+    const handleGoHome = () => { stopSpeaking(); setScreen("welcome"); };
 
-    const pusher = new Pusher(PUSHER_KEY, {
-      cluster: PUSHER_CLUSTER,
-      forceTLS: true,
-    });
-    wsRef.current = pusher;
-
-    const pusherChannel = pusher.subscribe(channel);
-    pusherChannelRef.current = pusherChannel;
-
-    pusherChannel.bind("START_CAPTURE", () => {
-      start();
-    });
-
-    pusherChannel.bind("TRIGGER_PRINT", () => {
-      if (printTriggerRef.current) {
-        printTriggerRef.current();
-      }
-    });
-
-    pusherChannel.bind("GO_HOME", () => {
-      stopSpeaking();
-      setScreen("welcome");
-    });
+    channelBus.bind("START_CAPTURE", handleStart);
+    channelBus.bind("TRIGGER_PRINT", handlePrint);
+    channelBus.bind("GO_HOME", handleGoHome);
 
     return () => {
-      pusherChannel.unbind_all();
-      pusher.unsubscribe(channel);
-      pusher.disconnect();
-      pusherChannelRef.current = null;
+      channelBus.unbind("START_CAPTURE", handleStart);
+      channelBus.unbind("TRIGGER_PRINT", handlePrint);
+      channelBus.unbind("GO_HOME", handleGoHome);
     };
-  }, [channel, PUSHER_KEY, PUSHER_CLUSTER]);
+  }, [channelBus]);
 
-  // Broadcast state change back to the tablet remote
+  // Broadcast state change to the tablet remote over SSE
   useEffect(() => {
-    if (!PUSHER_KEY || !PUSHER_CLUSTER) return;
-    // Only pass a stripUrl if it's a real cloud URL (Vercel Blob).
-    // Local /photos/ paths are inaccessible from the tablet on Vercel deployment.
-    // Tablet will use stripId + getStripData server function to fetch the image.
-    const currentStripUrl = strip?.dataUrl && !strip.dataUrl.startsWith("data:") && !strip.dataUrl.startsWith("/")
-      ? strip.dataUrl
-      : null;
+    const currentStripUrl = strip?.dataUrl || null;
 
     sendPusherEvent({
       data: {
@@ -153,7 +126,7 @@ function Kiosk() {
         },
       },
     }).catch((err) => console.warn("Failed to broadcast state change:", err));
-  }, [screen, cameraState, channel, settings, PUSHER_KEY, PUSHER_CLUSTER, strip]);
+  }, [screen, cameraState, channel, settings, strip]);
 
   const onCapturedAll = useCallback(async (imgs: string[]) => {
     setPhotos(imgs);
@@ -178,49 +151,31 @@ function Kiosk() {
     // The tablet will load the image via the local network URL
     uploadPhoto({ data: { id, dataUrl, eventName: s.eventName } })
       .then((res) => {
-        // Build the URL the tablet can actually fetch:
-        // - Cloud URL (Vercel Blob): works from anywhere
-        // - Local URL using window.location.origin: works on local LAN (same server)
-        let photoUrl: string;
-        if (res && res.success && res.url && !res.url.startsWith("/photos/")) {
-          // Cloud Vercel Blob URL — accessible from anywhere
-          photoUrl = res.url;
-          console.log("[Laptop] Photo uploaded to cloud:", photoUrl);
-        } else {
-          // Local dev: file saved to public/photos/ — build an absolute URL
-          // using the laptop's actual IP so tablet on same LAN can load it
-          const origin = typeof window !== "undefined" ? window.location.origin : "";
-          photoUrl = `${origin}/photos/${id}.jpg`;
-          console.log("[Laptop] Photo saved locally, broadcasting LAN URL:", photoUrl);
-        }
+        // Broadcast PHOTO_READY with base64 dataUrl (or Cloud URL if available)
+        const photoUrl = (res && res.success && res.url && !res.url.startsWith("/photos/"))
+          ? res.url
+          : dataUrl;
 
-        // Broadcast PHOTO_READY with the absolute accessible URL
-        // File is guaranteed to be on disk at this point
-        if (PUSHER_KEY && PUSHER_CLUSTER) {
-          sendPusherEvent({
-            data: {
-              channel,
-              event: "PHOTO_READY",
-              data: { id, dataUrl: photoUrl },
-            },
-          }).catch((err) => console.warn("Failed to broadcast PHOTO_READY:", err));
-        }
+        sendPusherEvent({
+          data: {
+            channel,
+            event: "PHOTO_READY",
+            data: { id, dataUrl: photoUrl },
+          },
+        }).catch((err) => console.warn("Failed to broadcast PHOTO_READY:", err));
       })
       .catch((err) => {
         console.error("Failed to upload/save photo:", err);
-        // Fallback: send local URL anyway (file might still be saved)
-        if (PUSHER_KEY && PUSHER_CLUSTER) {
-          const origin = typeof window !== "undefined" ? window.location.origin : "";
-          sendPusherEvent({
-            data: {
-              channel,
-              event: "PHOTO_READY",
-              data: { id, dataUrl: `${origin}/photos/${id}.jpg` },
-            },
-          }).catch((e) => console.warn(e));
-        }
+        // Fallback: send base64 dataUrl directly
+        sendPusherEvent({
+          data: {
+            channel,
+            event: "PHOTO_READY",
+            data: { id, dataUrl },
+          },
+        }).catch((e) => console.warn(e));
       });
-  }, [channel, PUSHER_KEY, PUSHER_CLUSTER]);
+  }, [channel]);
 
 
   return (

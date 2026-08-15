@@ -1,11 +1,11 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { z } from "zod";
-import Pusher from "pusher-js";
+import { useSSEChannel } from "@/lib/sse-client";
 import { sendPusherEvent } from "@/lib/pusher";
 import { getStripData } from "@/lib/server-storage";
 import { motion, AnimatePresence } from "framer-motion";
-import { Printer, RefreshCw, Download, QrCode, WifiOff, AlertTriangle } from "lucide-react";
+import { Printer, RefreshCw, Download, QrCode, WifiOff } from "lucide-react";
 import { RobotFace } from "@/components/RobotFace";
 import QRCode from "qrcode";
 
@@ -43,35 +43,29 @@ function TabletRemote() {
   // QR code for downloading
   const [qr, setQr] = useState<string | null>(null);
   const [showQR, setShowQR] = useState(false);
-  const [connected, setConnected] = useState(false);
-  const [configError, setConfigError] = useState(false);
   const [snapshotUrl, setSnapshotUrl] = useState<string | null>(null);
   const [hasWebRtcVideo, setHasWebRtcVideo] = useState(false);
   const [currentStripId, setCurrentStripId] = useState<string | null>(null);
 
-  const pusherRef = useRef<Pusher | null>(null);
-  const pusherChannelRef = useRef<any>(null);
+  // SSE real-time connection — replaces Pusher
+  const { bus: channelBus, connected } = useSSEChannel(channel);
+
   const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
   const tabletPeerRef = useRef<RTCPeerConnection | null>(null);
   const pendingHostCandidatesRef = useRef<RTCIceCandidateInit[]>([]);
-
-  const PUSHER_KEY = import.meta.env.VITE_PUSHER_KEY;
-  const PUSHER_CLUSTER = import.meta.env.VITE_PUSHER_CLUSTER;
 
   const numShots = printLayout === "4x6" ? 4 : 3;
 
   const loadStripForTablet = async (id?: string | null, url?: string | null) => {
     if (id) setCurrentStripId(id);
 
-    // 1. If a URL was provided (cloud or LAN), use it directly to load the image
-    //    This is the primary path: laptop sends http://192.168.x.x:3001/photos/<id>.jpg
-    if (url && url.startsWith("http") && url.length > 10) {
+    // 1. If base64 dataUrl or Cloud URL was provided, use it directly
+    if (url && (url.startsWith("data:") || (url.startsWith("http") && !url.includes("/photos/")))) {
       setStripUrl(url);
       return;
     }
 
-    // 2. Fallback: fetch base64 via server function
-    //    Works when: in-memory store has data (storeStripData ran) OR file is on disk
+    // 2. Fetch base64 via server function getStripData(id)
     if (id) {
       for (let attempt = 0; attempt < 10; attempt++) {
         try {
@@ -87,35 +81,16 @@ function TabletRemote() {
       }
       console.error("[Tablet] Failed to load strip after 10 attempts for id:", id);
     }
+
+    // 3. Fallback to provided URL if any
+    if (url) {
+      setStripUrl(url);
+    }
   };
 
+  // Bind events broadcast from the kiosk over SSE
   useEffect(() => {
-    if (!PUSHER_KEY || !PUSHER_CLUSTER) {
-      console.error("Pusher credentials are not configured in .env");
-      setConfigError(true);
-      return;
-    }
-
-    if (process.env.NODE_ENV === "development") {
-      Pusher.logToConsole = true;
-    }
-
-    const pusher = new Pusher(PUSHER_KEY, {
-      cluster: PUSHER_CLUSTER,
-      forceTLS: true,
-    });
-    pusherRef.current = pusher;
-
-    const pusherChannel = pusher.subscribe(channel);
-    pusherChannelRef.current = pusherChannel;
-
-    pusher.connection.bind("state_change", (states: { current: string }) => {
-      setConnected(states.current === "connected");
-    });
-
-    setConnected(pusher.connection.state === "connected");
-
-    pusherChannel.bind("STATE_CHANGE", (msg: {
+    const handleStateChange = (msg: {
       screen: TabletState;
       count: number | null;
       shotIdx: number;
@@ -140,21 +115,19 @@ function TabletRemote() {
       if (msg.screen === "preview" && (msg.stripId || msg.stripUrl)) {
         loadStripForTablet(msg.stripId, msg.stripUrl);
       }
-    });
+    };
 
-    pusherChannel.bind("PHOTO_READY", async (msg: { id?: string; dataUrl: string }) => {
+    const handlePhotoReady = async (msg: { id?: string; dataUrl: string }) => {
       setState("preview");
       if (msg.id) setCurrentStripId(msg.id);
       await loadStripForTablet(msg.id, msg.dataUrl);
-    });
+    };
 
-    pusherChannel.bind("CAMERA_FRAME", (msg: { frame: string }) => {
-      if (msg.frame) {
-        setSnapshotUrl(msg.frame);
-      }
-    });
+    const handleCameraFrame = (msg: { frame: string }) => {
+      if (msg.frame) setSnapshotUrl(msg.frame);
+    };
 
-    pusherChannel.bind("RESET", () => {
+    const handleReset = () => {
       setState("welcome");
       setStripUrl(null);
       setCurrentStripId(null);
@@ -162,15 +135,20 @@ function TabletRemote() {
       setShowQR(false);
       setSnapshotUrl(null);
       setHasWebRtcVideo(false);
-    });
+    };
+
+    channelBus.bind("STATE_CHANGE", handleStateChange);
+    channelBus.bind("PHOTO_READY", handlePhotoReady);
+    channelBus.bind("CAMERA_FRAME", handleCameraFrame);
+    channelBus.bind("RESET", handleReset);
 
     return () => {
-      pusherChannel.unbind_all();
-      pusher.unsubscribe(channel);
-      pusher.disconnect();
-      pusherChannelRef.current = null;
+      channelBus.unbind("STATE_CHANGE", handleStateChange);
+      channelBus.unbind("PHOTO_READY", handlePhotoReady);
+      channelBus.unbind("CAMERA_FRAME", handleCameraFrame);
+      channelBus.unbind("RESET", handleReset);
     };
-  }, [channel, PUSHER_KEY, PUSHER_CLUSTER]);
+  }, [channelBus]);
 
   const triggerEvent = async (event: string, payload = {}) => {
     try {
@@ -197,8 +175,7 @@ function TabletRemote() {
       return;
     }
 
-    const pCh = pusherChannelRef.current;
-    if (!pCh || !connected) return; // wait until Pusher is connected
+    if (!connected) return; // wait until SSE is connected
 
     // Tell the laptop we're ready to receive the video stream
     console.log("[WebRTC] Sending VIEWER_READY to laptop");
@@ -276,18 +253,18 @@ function TabletRemote() {
       }
     };
 
-    pCh.bind("SDP_OFFER", handleSdpOffer);
-    pCh.bind("ICE_HOST", handleIceHost);
+    channelBus.bind("SDP_OFFER", handleSdpOffer);
+    channelBus.bind("ICE_HOST", handleIceHost);
 
     return () => {
-      pCh.unbind("SDP_OFFER", handleSdpOffer);
-      pCh.unbind("ICE_HOST", handleIceHost);
+      channelBus.unbind("SDP_OFFER", handleSdpOffer);
+      channelBus.unbind("ICE_HOST", handleIceHost);
       tabletPeerRef.current?.close();
       tabletPeerRef.current = null;
       pendingHostCandidatesRef.current = [];
       setHasWebRtcVideo(false);
     };
-  }, [state, channel, connected]);
+  }, [state, channel, connected, channelBus]);
 
   const handleStart = () => {
     triggerEvent("START_CAPTURE");
@@ -365,32 +342,61 @@ function TabletRemote() {
       printDataUrl = canvas.toDataURL("image/jpeg", 0.94);
     }
 
-    // Set up the print area div (appended directly to body)
-    let printArea = document.getElementById("rovi-tablet-print-area");
-    if (!printArea) {
-      printArea = document.createElement("div");
-      printArea.id = "rovi-tablet-print-area";
-      document.body.appendChild(printArea);
-    }
-    // Clear any previous content
-    printArea.innerHTML = "";
+    // 1. Trigger print on the laptop kiosk main system (connected printer)
+    triggerEvent("TRIGGER_PRINT", { id: currentStripId });
 
-    // Create image element — fire window.print() only AFTER image fully renders
-    // (setTimeout 150ms is not reliable for large base64 images on iPads)
-    const printImg = document.createElement("img");
-    printImg.style.cssText = "display:block;width:100%;height:auto;max-width:100%;";
-    printImg.onload = () => {
-      // Give browser one animation frame to paint the image before printing
-      requestAnimationFrame(() => {
-        window.print();
-      });
-    };
-    printImg.onerror = () => {
-      console.error("[Tablet] Print image failed to load — printing anyway");
-      window.print();
-    };
-    printImg.src = printDataUrl;
-    printArea.appendChild(printImg);
+    // 2. Also handle tablet local print using a clean popup window (matching main system)
+    const popup = window.open("", "_blank", "width=720,height=480");
+    if (popup) {
+      popup.document.write(`<!DOCTYPE html><html><head><title>ROVI Photo Print</title>
+<style>
+  @page { margin: 0; }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    width: 100%;
+    height: 100%;
+    background: #ffffff;
+    overflow: hidden;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  img {
+    display: block;
+    width: 100vw;
+    height: 100vh;
+    object-fit: fill;
+    page-break-after: avoid;
+    break-after: avoid;
+  }
+</style></head>
+<body>
+  <img id="p" src="${printDataUrl}" />
+  <script>document.getElementById('p').onload=function(){setTimeout(function(){window.focus();window.print();window.close();},400);};</script>
+</body></html>`);
+      popup.document.close();
+    } else {
+      // Fallback for mobile popups: create temporary iframe, print, and immediately destroy
+      const iframe = document.createElement("iframe");
+      iframe.style.position = "fixed";
+      iframe.style.right = "0";
+      iframe.style.bottom = "0";
+      iframe.style.width = "0";
+      iframe.style.height = "0";
+      iframe.style.border = "0";
+      document.body.appendChild(iframe);
+
+      const doc = iframe.contentWindow?.document;
+      if (doc) {
+        doc.open();
+        doc.write(`<!DOCTYPE html><html><head><style>@page{margin:0;}html,body{margin:0;padding:0;}img{width:100%;height:100%;}</style></head><body><img src="${printDataUrl}" /></body></html>`);
+        doc.close();
+        iframe.contentWindow?.focus();
+        setTimeout(() => {
+          iframe.contentWindow?.print();
+          setTimeout(() => document.body.removeChild(iframe), 1000);
+        }, 300);
+      }
+    }
   };
 
   const handleRetake = () => {
@@ -456,31 +462,13 @@ function TabletRemote() {
     setShowQR(true);
   };
 
-  if (configError) {
-    return (
-      <div className="fixed inset-0 bg-neutral-950 flex flex-col items-center justify-center p-6 text-center text-white">
-        <div className="bg-destructive/15 border border-destructive/30 p-6 rounded-2xl max-w-md">
-          <AlertTriangle className="w-12 h-12 text-destructive mx-auto mb-4" />
-          <h2 className="text-xl font-bold mb-2">Pusher Keys Missing</h2>
-          <p className="text-muted-foreground text-sm mb-4">
-            You need to create a free account at Pusher and add your credentials to the <code>.env</code> file in your project.
-          </p>
-          <div className="text-left text-xs bg-black/40 p-3 rounded-lg border border-white/5 space-y-1 font-mono text-muted-foreground">
-            <div>VITE_PUSHER_KEY="your_key"</div>
-            <div>VITE_PUSHER_CLUSTER="your_cluster"</div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
   if (!connected) {
     return (
       <div className="fixed inset-0 bg-neutral-950 flex flex-col items-center justify-center text-white p-6 text-center">
         <WifiOff className="w-12 h-12 text-muted-foreground animate-bounce mb-4" />
-        <h2 className="text-xl font-bold mb-1">Connecting to Booth...</h2>
+        <h2 className="text-xl font-bold mb-1">Connecting to Booth…</h2>
         <p className="text-muted-foreground text-sm max-w-xs">
-          Waiting for Pusher connection. Make sure your device has internet access.
+          Waiting for server connection. Make sure your device is on the same Wi-Fi as the photo booth laptop.
         </p>
         <div className="text-xs text-muted-foreground/40 mt-6 font-mono">Channel: {channel}</div>
       </div>
@@ -489,44 +477,6 @@ function TabletRemote() {
 
   return (
     <div className="fixed inset-0 grid-bg overflow-hidden select-none">
-      <style>{`
-        @media print {
-          * {
-            -webkit-print-color-adjust: exact !important;
-            color-adjust: exact !important;
-            print-color-adjust: exact !important;
-          }
-          body > *:not(#rovi-tablet-print-area) {
-            display: none !important;
-            visibility: hidden !important;
-          }
-          body {
-            margin: 0 !important;
-            padding: 0 !important;
-            background: white !important;
-          }
-          #rovi-tablet-print-area {
-            display: block !important;
-            visibility: visible !important;
-            position: fixed !important;
-            top: 0 !important;
-            left: 0 !important;
-            width: 100% !important;
-            height: 100% !important;
-            background: white !important;
-            z-index: 99999 !important;
-            margin: 0 !important;
-            padding: 0 !important;
-          }
-          #rovi-tablet-print-area img {
-            display: block !important;
-            width: 100% !important;
-            height: 100% !important;
-            object-fit: contain !important;
-            -webkit-print-color-adjust: exact !important;
-          }
-        }
-      `}</style>
       {/* Small channel tag */}
       <div className="absolute top-4 left-4 text-xs font-mono text-muted-foreground/30 z-10">
         CH: {channel}
