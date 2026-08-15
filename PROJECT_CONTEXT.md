@@ -57,8 +57,14 @@ Built to work **100% seamlessly on both Localhost AND Vercel Serverless**:
 ```
 
 1. **Direct P2P DataChannel Transport (PeerJS)**:
+   - `START_CAPTURE`: Sent by Tablet Remote to trigger the photo capture sequence on Laptop Kiosk.
+   - `TRIGGER_PRINT`: Sent by Tablet Remote to trigger window printing on Laptop Kiosk.
+   - `GO_HOME` / `RESET`: Sent by Tablet Remote to reset the photo booth back to welcome screen.
+   - `PHOTO_READY`: Sent by Laptop Kiosk when photo strip is generated, containing base64 dataUrl.
+   - `STATE_CHANGE`: Broadcasted by Laptop Kiosk whenever screen, countdown, or shot index updates.
+   - `SETTINGS_UPDATE`: Broadcasted by Laptop Kiosk or Tablet Remote whenever Admin Settings are modified, instantly updating event name, watermark, fonts, colors, layout, and camera controls on all devices in real-time.
    - When Laptop Kiosk and Tablet Remote open on Vercel or Localhost, PeerJS establishes a direct browser-to-browser WebRTC DataChannel connection (`rovi-booth-kiosk-<channel>`).
-   - Remote actions (`START_CAPTURE`, `TRIGGER_PRINT`, `GO_HOME`) and complete photo strip data (`PHOTO_READY` base64 `dataUrl`) transmit directly between browsers in **<1 millisecond**, bypassing Vercel serverless lambda limits entirely.
+   - Remote actions transmit directly between browsers in **<1 millisecond**, bypassing Vercel serverless lambda limits entirely.
    - Requires zero external accounts or API keys (uses free public WebRTC signaling).
 2. **`src/lib/sse-broker.server.ts`**:
    - Stores active SSE writers AND maintains a rolling event history log per channel (`Map<string, ChannelEventRecord[]>`, 5-min TTL).

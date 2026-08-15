@@ -4,8 +4,10 @@ import { z } from "zod";
 import { useSSEChannel } from "@/lib/sse-client";
 import { sendPusherEvent } from "@/lib/pusher";
 import { getStripData } from "@/lib/server-storage";
+import { getSettings, saveSettings, type Settings } from "@/lib/booth-storage";
+import { AdminPanel } from "@/components/AdminPanel";
 import { motion, AnimatePresence } from "framer-motion";
-import { Printer, RefreshCw, Download, QrCode, WifiOff } from "lucide-react";
+import { Printer, RefreshCw, Download, QrCode, WifiOff, Settings as SettingsIcon } from "lucide-react";
 import { RobotFace } from "@/components/RobotFace";
 import QRCode from "qrcode";
 
@@ -35,10 +37,12 @@ function TabletRemote() {
   const [count, setCount] = useState<number | null>(null);
   const [flash, setFlash] = useState(false);
   const [shotIdx, setShotIdx] = useState(0);
-  const [eventName, setEventName] = useState("ROVI Live Event");
-  const [printLayout, setPrintLayout] = useState("2x6");
-  const [enablePrint, setEnablePrint] = useState(true);
-  const [enableQR, setEnableQR] = useState(true);
+  const [settings, setSettings] = useState<Settings>(() => getSettings());
+  const [adminOpen, setAdminOpen] = useState(false);
+  const [eventName, setEventName] = useState(settings.eventName);
+  const [printLayout, setPrintLayout] = useState(settings.printLayout || "2x6");
+  const [enablePrint, setEnablePrint] = useState(settings.enablePrint !== false);
+  const [enableQR, setEnableQR] = useState(settings.enableQR !== false);
 
   // QR code for downloading
   const [qr, setQr] = useState<string | null>(null);
@@ -117,7 +121,7 @@ function TabletRemote() {
       setShotIdx(msg.shotIdx);
       setFlash(msg.flash);
       if (msg.eventName) setEventName(msg.eventName);
-      if (msg.printLayout) setPrintLayout(msg.printLayout);
+      if (msg.printLayout) setPrintLayout(msg.printLayout as "2x6" | "4x6");
       if (msg.enablePrint !== undefined) setEnablePrint(msg.enablePrint);
       if (msg.enableQR !== undefined) setEnableQR(msg.enableQR);
       if (msg.stripId) setCurrentStripId(msg.stripId);
@@ -151,16 +155,29 @@ function TabletRemote() {
       setHasWebRtcVideo(false);
     };
 
+    const handleSettingsUpdate = (newSettings: Settings) => {
+      if (newSettings) {
+        saveSettings(newSettings);
+        setSettings(newSettings);
+        if (newSettings.printLayout) setPrintLayout(newSettings.printLayout as "2x6" | "4x6");
+        if (newSettings.eventName) setEventName(newSettings.eventName);
+        if (newSettings.enablePrint !== undefined) setEnablePrint(newSettings.enablePrint);
+        if (newSettings.enableQR !== undefined) setEnableQR(newSettings.enableQR);
+      }
+    };
+
     channelBus.bind("STATE_CHANGE", handleStateChange);
     channelBus.bind("PHOTO_READY", handlePhotoReady);
     channelBus.bind("CAMERA_FRAME", handleCameraFrame);
     channelBus.bind("RESET", handleReset);
+    channelBus.bind("SETTINGS_UPDATE", handleSettingsUpdate);
 
     return () => {
       channelBus.unbind("STATE_CHANGE", handleStateChange);
       channelBus.unbind("PHOTO_READY", handlePhotoReady);
       channelBus.unbind("CAMERA_FRAME", handleCameraFrame);
       channelBus.unbind("RESET", handleReset);
+      channelBus.unbind("SETTINGS_UPDATE", handleSettingsUpdate);
     };
   }, [channelBus]);
 
@@ -731,6 +748,28 @@ function TabletRemote() {
           </motion.div>
         )}
 
+        {/* Admin Settings Button */}
+        <button
+          aria-label="admin-visible"
+          onClick={() => setAdminOpen(true)}
+          className="absolute top-3 right-3 z-40 p-3 rounded-full bg-card/60 backdrop-blur border border-border opacity-30 hover:opacity-100 transition"
+        >
+          <SettingsIcon className="w-5 h-5" />
+        </button>
+
+        <AdminPanel
+          open={adminOpen}
+          onClose={() => setAdminOpen(false)}
+          onSave={(newSettings) => {
+            saveSettings(newSettings);
+            setSettings(newSettings);
+            if (newSettings.printLayout) setPrintLayout(newSettings.printLayout as "2x6" | "4x6");
+            if (newSettings.eventName) setEventName(newSettings.eventName);
+            if (newSettings.enablePrint !== undefined) setEnablePrint(newSettings.enablePrint);
+            if (newSettings.enableQR !== undefined) setEnableQR(newSettings.enableQR);
+            triggerEvent("SETTINGS_UPDATE", newSettings);
+          }}
+        />
       </AnimatePresence>
     </div>
   );

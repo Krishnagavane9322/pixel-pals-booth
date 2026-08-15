@@ -6,7 +6,7 @@ import { Camera, Printer, QrCode, RefreshCw, Download, Settings as SettingsIcon,
 import { RobotFace } from "@/components/RobotFace";
 import { AdminPanel } from "@/components/AdminPanel";
 import {
-  getSettings, saveStrip, uid, logPrint, logDownload, type Settings,
+  getSettings, saveSettings, saveStrip, uid, logPrint, logDownload, type Settings,
 } from "@/lib/booth-storage";
 import { buildStrip, captureFromVideo } from "@/lib/strip";
 import { uploadPhoto, storeStripData } from "@/lib/server-storage";
@@ -91,15 +91,23 @@ function Kiosk() {
     const handleStart = () => start();
     const handlePrint = () => { if (printTriggerRef.current) printTriggerRef.current(); };
     const handleGoHome = () => { stopSpeaking(); setScreen("welcome"); };
+    const handleSettingsUpdate = (newSettings: Settings) => {
+      if (newSettings) {
+        saveSettings(newSettings);
+        setSettings(newSettings);
+      }
+    };
 
     channelBus.bind("START_CAPTURE", handleStart);
     channelBus.bind("TRIGGER_PRINT", handlePrint);
     channelBus.bind("GO_HOME", handleGoHome);
+    channelBus.bind("SETTINGS_UPDATE", handleSettingsUpdate);
 
     return () => {
       channelBus.unbind("START_CAPTURE", handleStart);
       channelBus.unbind("TRIGGER_PRINT", handlePrint);
       channelBus.unbind("GO_HOME", handleGoHome);
+      channelBus.unbind("SETTINGS_UPDATE", handleSettingsUpdate);
     };
   }, [channelBus]);
 
@@ -215,6 +223,16 @@ function Kiosk() {
         onClose={() => setAdminOpen(false)} 
         tabletQr={tabletQr}
         tabletUrl={typeof window !== "undefined" ? `${window.location.origin}/tablet?channel=${channel}` : ""}
+        onSave={(newSettings) => {
+          setSettings(newSettings);
+          sendPusherEvent({
+            data: {
+              channel,
+              event: "SETTINGS_UPDATE",
+              data: newSettings,
+            },
+          }).catch(console.warn);
+        }}
       />
     </div>
   );

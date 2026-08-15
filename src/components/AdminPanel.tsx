@@ -67,11 +67,13 @@ export function AdminPanel({
   onClose,
   tabletQr,
   tabletUrl,
+  onSave,
 }: {
   open: boolean;
   onClose: () => void;
   tabletQr?: string;
   tabletUrl?: string;
+  onSave?: (settings: Settings) => void;
 }) {
   const [s, setS] = useState<Settings>(() => getSettings());
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
@@ -124,6 +126,7 @@ export function AdminPanel({
     const next = { ...s, ...patch };
     setS(next);
     saveSettings(next);
+    if (onSave) onSave(next);
   };
 
   const handleFile = (key: "logoDataUrl") => (e: React.ChangeEvent<HTMLInputElement>) => {
