@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { z } from "zod";
 import { useSSEChannel } from "@/lib/sse-client";
 import { sendPusherEvent } from "@/lib/pusher";
-import { getStripData } from "@/lib/server-storage";
+import { getStripData, fetchStripFromApi } from "@/lib/server-storage";
 import { getSettings, saveSettings, type Settings } from "@/lib/booth-storage";
 import { AdminPanel } from "@/components/AdminPanel";
 import { motion, AnimatePresence } from "framer-motion";
@@ -66,29 +66,37 @@ function TabletRemote() {
     // 1. If base64 dataUrl or Cloud URL was provided, use it directly
     if (url && (url.startsWith("data:") || (url.startsWith("http") && !url.includes("/photos/")))) {
       setStripUrl(url);
+      setState("preview");
       return;
     }
 
-    // 2. Fetch base64 via server function getStripData(id)
+    // 2. Fetch base64 via Nitro API /api/strip?id=<id> or getStripData({ data: id })
     if (id) {
-      for (let attempt = 0; attempt < 10; attempt++) {
+      for (let attempt = 0; attempt < 12; attempt++) {
         try {
+          const apiDataUrl = await fetchStripFromApi(id);
+          if (apiDataUrl) {
+            setStripUrl(apiDataUrl);
+            setState("preview");
+            return;
+          }
           const res = await getStripData({ data: id });
           if (res && res.success && res.dataUrl) {
             setStripUrl(res.dataUrl);
+            setState("preview");
             return;
           }
         } catch (err) {
           console.warn(`[Tablet] getStripData attempt ${attempt + 1} failed:`, err);
         }
-        await new Promise((r) => setTimeout(r, 400));
+        await new Promise((r) => setTimeout(r, 300));
       }
-      console.error("[Tablet] Failed to load strip after 10 attempts for id:", id);
     }
 
     // 3. Fallback to provided URL if any
     if (url) {
       setStripUrl(url);
+      setState("preview");
     }
   };
 

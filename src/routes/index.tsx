@@ -9,7 +9,7 @@ import {
   getSettings, saveSettings, saveStrip, uid, logPrint, logDownload, type Settings,
 } from "@/lib/booth-storage";
 import { buildStrip, captureFromVideo } from "@/lib/strip";
-import { uploadPhoto, storeStripData } from "@/lib/server-storage";
+import { uploadPhoto, storeStripData, uploadStripToApi } from "@/lib/server-storage";
 import { speak, playShutterSound, stopSpeaking } from "@/lib/audio";
 import { useSSEChannel } from "@/lib/sse-client";
 import { sendPusherEvent } from "@/lib/pusher";
@@ -185,7 +185,12 @@ function Kiosk() {
     // Transition the laptop to preview immediately
     setScreen("preview");
 
-    // Also store base64 in server memory as backup
+    // Upload to Nitro API (/api/strip) — works 100% reliably on Vercel Serverless
+    uploadStripToApi(id, dataUrl).catch((err) =>
+      console.warn("Failed to upload strip to Nitro API:", err)
+    );
+
+    // Also store base64 in server function memory as secondary backup
     storeStripData({ data: { id, dataUrl } }).catch((err) =>
       console.warn("Failed to store strip data on server:", err)
     );

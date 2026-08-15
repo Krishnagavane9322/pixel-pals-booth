@@ -9,6 +9,37 @@ export type CloudPhotoData = {
   createdAt: number;
 };
 
+// ── Client HTTP API helpers for Nitro /api/strip ─────────────────────────
+export async function uploadStripToApi(id: string, dataUrl: string): Promise<boolean> {
+  if (typeof window === "undefined") return false;
+  try {
+    const res = await fetch("/api/strip", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, dataUrl }),
+    });
+    return res.ok;
+  } catch (e) {
+    console.warn("[Client] API upload photo strip fallback:", e);
+    return false;
+  }
+}
+
+export async function fetchStripFromApi(id: string): Promise<string | null> {
+  if (typeof window === "undefined") return null;
+  try {
+    const res = await fetch(`/api/strip?id=${encodeURIComponent(id)}`);
+    if (!res.ok) return null;
+    const json = await res.json();
+    if (json && json.success && json.dataUrl) {
+      return json.dataUrl;
+    }
+  } catch (e) {
+    console.warn("[Client] API fetch photo strip fallback:", e);
+  }
+  return null;
+}
+
 // ── Server-side in-memory strip store ──────────────────────────────────────
 // Stores base64 data URLs keyed by photo ID so the tablet can retrieve them
 // from the Vercel server without hitting local disk or Pusher payload limits.
