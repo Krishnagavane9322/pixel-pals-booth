@@ -71,15 +71,12 @@ function TabletRemote() {
     }
 
     // 2. Fetch base64 via Nitro API /api/strip?id=<id> or getStripData({ data: id })
+    // Deadline: 15s with 500ms between retries — gives the kiosk time to upload
+    // the strip to /api/strip even if that POST is slightly slower than the
+    // /api/session update that triggered this fetch.
     if (id) {
-      const deadline = Date.now() + 8000; // 8s max
-      for (let attempt = 0; attempt < 20; attempt++) {
-        if (Date.now() > deadline) {
-          console.warn("[Tablet] Strip load timeout — resetting to welcome screen");
-          setState("welcome");
-          setStripUrl(null);
-          return;
-        }
+      const deadline = Date.now() + 15000; // 15s max
+      while (Date.now() < deadline) {
         try {
           const apiDataUrl = await fetchStripFromApi(id);
           if (apiDataUrl) {
@@ -94,11 +91,11 @@ function TabletRemote() {
             return;
           }
         } catch (err) {
-          console.warn(`[Tablet] getStripData attempt ${attempt + 1} failed:`, err);
+          console.warn(`[Tablet] getStripData attempt failed:`, err);
         }
-        await new Promise((r) => setTimeout(r, 200));
+        await new Promise((r) => setTimeout(r, 500));
       }
-      // Still not found — reset to welcome
+      // Still not found after 15s — reset to welcome
       console.warn("[Tablet] Strip load exhausted retries — resetting to welcome screen");
       setState("welcome");
       setStripUrl(null);
@@ -115,6 +112,68 @@ function TabletRemote() {
   useEffect(() => {
     stateRef.current = state;
   }, [state]);
+
+  // ── Primary sync: poll /api/session every 1 second ─────────────────────────
+  // On Vercel Serverless, SSE events are lost because each lambda invocation
+  // is isolated. /api/session stores state in globalThis + /tmp so at least
+  // warm-lambda or same-region requests see it.
+  // This polling is the reliable escape hatch from any stuck state.
+  useEffect(() => {
+    let active = true;
+    const loadingRef = { current: false }; // prevent concurrent loads
+
+    const poll = async () => {
+      if (!active) return;
+      try {
+        const res = await fetch(`/api/session?channel=${encodeURIComponent(channel)}`);
+        if (!res.ok || !active) return;
+        const data = await res.json() as {
+          success: boolean;
+          screen?: string;
+          stripId?: string | null;
+          ts?: number;
+        };
+
+        if (!data.success || !active) return;
+        const remoteScreen = data.screen as TabletState | undefined;
+        const remoteStripId = data.stripId ?? null;
+
+        // If the kiosk has moved to preview with a strip, and we haven't
+        // shown it yet, load it now.
+        if (
+          remoteScreen === "preview" &&
+          remoteStripId &&
+          stateRef.current !== "preview" &&
+          !loadingRef.current
+        ) {
+          loadingRef.current = true;
+          console.log("[Session Poll] Kiosk is preview with strip", remoteStripId, "— loading");
+          setCurrentStripId(remoteStripId);
+          setState("processing"); // show spinner while we fetch
+          await loadStripForTablet(remoteStripId, null);
+          loadingRef.current = false;
+        }
+
+        // Mirror camera / processing state if we're behind
+        if (
+          remoteScreen === "camera" &&
+          stateRef.current === "welcome" &&
+          !loadingRef.current
+        ) {
+          setState("camera");
+        }
+      } catch {
+        // Silently ignore network errors — will retry on next tick
+      }
+    };
+
+    const timer = setInterval(poll, 1000);
+    poll(); // run immediately on mount
+    return () => {
+      active = false;
+      clearInterval(timer);
+    };
+  }, [channel]);
 
   // Bind events broadcast from the kiosk over SSE
   useEffect(() => {

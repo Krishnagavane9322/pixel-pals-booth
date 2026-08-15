@@ -76,6 +76,17 @@ function Kiosk() {
 
   const start = () => { setPhotos([]); setStrip(null); setScreen("camera"); };
 
+  // ── Persist kiosk state to /api/session so tablet can poll it ───────────────
+  // This is the reliable fallback when SSE events are lost (Vercel Serverless
+  // cold-start isolation). The tablet polls /api/session every second.
+  const postSessionState = (screen: Screen, stripId: string | null) => {
+    fetch(`/api/session?channel=${encodeURIComponent(channel)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ screen, stripId }),
+    }).catch(() => {});
+  };
+
   // Generate tablet QR code
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -141,6 +152,7 @@ function Kiosk() {
   }, [channelBus]);
 
   // Broadcast state change to the tablet remote over SSE
+  // AND persist to /api/session for reliable polling-based fallback
   useEffect(() => {
     // Only send stripUrl if it's a lightweight cloud URL (Vercel Blob).
     // Large base64 strings are omitted from sendPusherEvent to keep HTTP POST payloads <200 bytes.
@@ -169,6 +181,9 @@ function Kiosk() {
         },
       },
     }).catch((err) => console.warn("Failed to broadcast state change:", err));
+
+    // Also persist to session API for polling-based tablet sync
+    postSessionState(screen, strip?.id || null);
   }, [screen, cameraState, channel, settings, strip]);
 
   const onCapturedAll = useCallback(async (imgs: string[]) => {
@@ -201,6 +216,12 @@ function Kiosk() {
 
     // Transition the laptop to preview immediately — regardless of build success
     setScreen("preview");
+
+    // Immediately push preview + stripId to /api/session so the tablet can
+    // discover it via polling without waiting for SSE (which is unreliable on
+    // Vercel Serverless). This runs before the uploadStripToApi call so the
+    // session is updated as fast as possible.
+    postSessionState("preview", id);
 
     // Upload to Nitro API (/api/strip) — works 100% reliably on Vercel Serverless
     uploadStripToApi(id, dataUrl).catch((err) =>
