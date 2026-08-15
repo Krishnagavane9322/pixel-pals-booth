@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { fetchChannelEvents, type ChannelEventRecord } from "@/lib/sse-broker.server";
+import { fetchChannelEvents, type ChannelEventRecord } from "@/lib/sse-poll";
 
 // ---------------------------------------------------------------------------
 // ChannelBus — Pusher-compatible event bus

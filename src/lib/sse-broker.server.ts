@@ -2,8 +2,6 @@
 // Stores active SSE writers and an event history queue per channel so clients
 // can sync via SSE on persistent servers or fast HTTP polling on Vercel Serverless.
 
-import { createServerFn } from "@tanstack/react-start";
-
 export type ChannelEventRecord = {
   id: string;
   event: string;
@@ -77,20 +75,3 @@ export function getEventsSince(channel: string, since: number): ChannelEventReco
   if (!list || list.length === 0) return [];
   return list.filter((item) => item.timestamp > since);
 }
-
-// Server function for client HTTP polling fallback (works on Vercel Serverless)
-export const fetchChannelEvents = createServerFn({ method: "POST" })
-  .validator((d: any) => d)
-  .handler(async (rawPayload: any) => {
-    let payload = rawPayload;
-    while (payload && typeof payload === "object" && payload.data && !payload.channel) {
-      payload = payload.data;
-    }
-    const channel = payload?.channel ?? "default";
-    const since = payload?.since ?? 0;
-    return {
-      success: true,
-      events: getEventsSince(channel, since),
-      serverTime: Date.now(),
-    };
-  });
