@@ -88,6 +88,11 @@ function TabletRemote() {
     }
   };
 
+  const stateRef = useRef<TabletState>(state);
+  useEffect(() => {
+    stateRef.current = state;
+  }, [state]);
+
   // Bind events broadcast from the kiosk over SSE
   useEffect(() => {
     const handleStateChange = (msg: {
@@ -102,6 +107,11 @@ function TabletRemote() {
       stripId?: string;
       stripUrl?: string;
     }) => {
+      // Guard: Once preview screen is active or photo is ready, ignore stale 'processing' or 'camera' messages
+      if (stateRef.current === "preview" && (msg.screen === "processing" || msg.screen === "camera")) {
+        return;
+      }
+
       setState(msg.screen);
       setCount(msg.count);
       setShotIdx(msg.shotIdx);
