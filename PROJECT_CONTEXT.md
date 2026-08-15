@@ -46,31 +46,26 @@ pixel-pals-booth/
 
 ---
 
-## 3. Real-Time Communication System (SSE)
+## 3. Real-Time Communication System (Dual-Mode SSE + Fast HTTP Polling)
 
-Replaced external Pusher service with a **100% self-hosted Server-Sent Events (SSE)** architecture:
+Built to work **100% seamlessly on both Localhost (persistent server) AND Vercel Serverless Functions**:
 
 ```
-[Tablet Remote] --(POST sendPusherEvent)--> [TanStack Server Function]
-                                                     |
-                                         (sse-broker.server.ts)
-                                                     |
-                                   (GET /api/sse?channel=... Stream)
-                                                     v
-                                         [Laptop Kiosk Remote]
+[Tablet Remote] <--- (Instant SSE or 450ms HTTP Polling) ---> [Server Engine] <--- (sendPusherEvent) ---> [Laptop Kiosk]
 ```
 
 1. **`src/lib/sse-broker.server.ts`**:
-   - Stores active SSE response writers in a `Map<channel, Set<Writer>>` on `globalThis`.
-   - `publish(channel, event, data)` formats events as `data: {"event":..., "data":...}\n\n` and broadcasts to all connected writers.
+   - Stores active SSE response writers AND maintains a rolling event history log per channel (`Map<string, ChannelEventRecord[]>`, 5-min TTL).
+   - `publish(channel, event, data)` broadcasts to active SSE writers AND appends to the history log.
+   - Exports `fetchChannelEvents` server function for fast polling clients.
 2. **`server/routes/api/sse.ts`**:
-   - Nitro server endpoint returning a `ReadableStream` with `Content-Type: text/event-stream`.
-   - Cleans up writers automatically when HTTP connection aborts.
+   - Nitro server route returning `text/event-stream` for persistent connections.
 3. **`src/lib/sse-client.ts`**:
-   - `useSSEChannel(channel)` opens an `EventSource` and provides a `ChannelBus` instance.
-   - `ChannelBus` implements `.bind(event, handler)`, `.unbind()`, and `.dispatch()` (identical to Pusher JS API).
+   - `useSSEChannel(channel)` initializes `EventSource` for instant streaming on Localhost/persistent servers.
+   - Simultaneously runs a lightweight 450ms HTTP polling fallback (`fetchChannelEvents`) so devices stay 100% synchronized even when deployed on Vercel Serverless where long-lived SSE connections and cross-lambda state are isolated.
+   - Deduplicates incoming event IDs (`seenIds` set) to prevent double processing.
 4. **`src/lib/pusher.ts`**:
-   - `sendPusherEvent` TanStack Server Function that accepts `{ channel, event, data }` and calls `sseBroker.publish()`.
+   - `sendPusherEvent` server function that accepts `{ channel, event, data }` and calls `sseBroker.publish()`.
 
 ---
 
