@@ -399,43 +399,19 @@ function drawCover(
   ctx.drawImage(img, sx, sy, sw, sh, x, y, w, h);
 }
 
-export async function captureFromVideo(video: HTMLVideoElement, cssFilter?: string): Promise<string> {
-  const stream = video.srcObject as MediaStream | null;
-  const track = stream?.getVideoTracks()[0];
-
-  // Try W3C ImageCapture API for direct raw sensor hardware frame grabbing if supported
-  if (track && typeof (window as any).ImageCapture === "function") {
-    try {
-      const imageCapture = new (window as any).ImageCapture(track);
-      const bitmap: ImageBitmap = await imageCapture.grabFrame();
-      const c = document.createElement("canvas");
-      c.width = bitmap.width;
-      c.height = bitmap.height;
-      const ctx = c.getContext("2d", { alpha: false })!;
-      ctx.imageSmoothingEnabled = true;
-      ctx.imageSmoothingQuality = "high";
-      ctx.translate(c.width, 0);
-      ctx.scale(-1, 1);
-      if (cssFilter) ctx.filter = cssFilter;
-      ctx.drawImage(bitmap, 0, 0, c.width, c.height);
-      return c.toDataURL("image/jpeg", 1.0);
-    } catch (e) {
-      console.warn("ImageCapture grabFrame fallback to canvas:", e);
-    }
-  }
-
-  // High-precision canvas fallback
+export function captureFromVideo(video: HTMLVideoElement, cssFilter?: string): string {
   const c = document.createElement("canvas");
   const vw = video.videoWidth || 1920;
   const vh = video.videoHeight || 1080;
 
+  // Capture full frame native DSLR resolution
   c.width = vw;
   c.height = vh;
   const ctx = c.getContext("2d", { alpha: false })!;
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = "high";
 
-  // mirror horizontally (selfie view)
+  // Mirror horizontally (selfie view)
   ctx.translate(c.width, 0);
   ctx.scale(-1, 1);
   if (cssFilter) {

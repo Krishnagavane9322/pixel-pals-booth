@@ -35,6 +35,20 @@ export const storeStripData = createServerFn({ method: "POST" })
     if (data && data.id && data.dataUrl) {
       cleanupStripStore();
       stripStore.set(data.id, { dataUrl: data.dataUrl, createdAt: Date.now() });
+
+      // Save to serverless disk (/tmp/photos/<id>.jpg) as backup
+      try {
+        const base64Data = data.dataUrl.includes(",") ? data.dataUrl.split(",")[1] : data.dataUrl;
+        const buffer = Buffer.from(base64Data, "base64");
+        const os = await import("os");
+        const dir = path.join(os.tmpdir(), "photos");
+        if (!fs.existsSync(dir)) {
+          fs.mkdirSync(dir, { recursive: true });
+        }
+        await fs.promises.writeFile(path.join(dir, `${data.id}.jpg`), buffer);
+      } catch (e) {
+        console.warn("[ServerStorage] Temp disk backup skipped:", e);
+      }
     }
     return { success: true };
   });
@@ -106,11 +120,18 @@ export const getStripData = createServerFn({ method: "GET" })
       return { success: true, dataUrl: inMemory.dataUrl };
     }
 
-    // 2. Fall back to local disk (works in local dev)
+    // 2. Fall back to local disk (public/photos AND os.tmpdir()/photos)
     try {
       const filename = `${id}.jpg`;
-      const dir = path.join(process.cwd(), "public", "photos");
-      const filePath = path.join(dir, filename);
+      const publicDir = path.join(process.cwd(), "public", "photos");
+      let filePath = path.join(publicDir, filename);
+
+      if (!fs.existsSync(filePath)) {
+        const os = await import("os");
+        const tmpDir = path.join(os.tmpdir(), "photos");
+        filePath = path.join(tmpDir, filename);
+      }
+
       if (fs.existsSync(filePath)) {
         const buffer = await fs.promises.readFile(filePath);
         const base64 = buffer.toString("base64");
