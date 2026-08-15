@@ -93,8 +93,8 @@ function Kiosk() {
     const initCamera = async () => {
       try {
         const videoConstraints: MediaTrackConstraints = {
-          width: { ideal: 3840, min: 1920 },
-          height: { ideal: 2160, min: 1080 },
+          width: { ideal: 3840 },
+          height: { ideal: 2160 },
           frameRate: { ideal: 30 },
         };
         if (settings.cameraId) {
@@ -547,8 +547,8 @@ function CameraScreen({
 
         if (!stream) {
           const videoConstraints: MediaTrackConstraints = {
-            width: { ideal: 3840, min: 1920 },
-            height: { ideal: 2160, min: 1080 },
+            width: { ideal: 3840 },
+            height: { ideal: 2160 },
             frameRate: { ideal: 30 },
           };
 
@@ -568,7 +568,7 @@ function CameraScreen({
             if (settings.cameraId) {
               console.warn("Selected camera failed, falling back to default camera:", deviceErr);
               stream = await navigator.mediaDevices.getUserMedia({
-                video: { facingMode: "user", width: { ideal: 3840, min: 1920 }, height: { ideal: 2160, min: 1080 } },
+                video: { facingMode: "user", width: { ideal: 1920 }, height: { ideal: 1080 } },
                 audio: false,
               });
               (window as any).__roviCameraStream = stream;
