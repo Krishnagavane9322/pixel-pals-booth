@@ -147,38 +147,24 @@ function Kiosk() {
     // Transition the laptop to preview immediately
     setScreen("preview");
 
-    // Also store base64 in server memory as an extra backup for getStripData
+    // Also store base64 in server memory as backup
     storeStripData({ data: { id, dataUrl } }).catch((err) =>
       console.warn("Failed to store strip data on server:", err)
     );
 
-    // Save photo to disk AND broadcast PHOTO_READY once the file is on disk
-    // The tablet will load the image via the local network URL
-    uploadPhoto({ data: { id, dataUrl, eventName: s.eventName } })
-      .then((res) => {
-        // Broadcast PHOTO_READY with lightweight URL (or ID only)
-        const photoUrl = (res && res.success && res.url && !res.url.startsWith("/photos/"))
-          ? res.url
-          : null;
+    // Broadcast PHOTO_READY immediately with base64 dataUrl so tablet receives the photo strip instantly
+    sendPusherEvent({
+      data: {
+        channel,
+        event: "PHOTO_READY",
+        data: { id, dataUrl },
+      },
+    }).catch((err) => console.warn("Failed to broadcast PHOTO_READY:", err));
 
-        sendPusherEvent({
-          data: {
-            channel,
-            event: "PHOTO_READY",
-            data: { id, dataUrl: photoUrl },
-          },
-        }).catch((err) => console.warn("Failed to broadcast PHOTO_READY:", err));
-      })
-      .catch((err) => {
-        console.error("Failed to upload/save photo:", err);
-        sendPusherEvent({
-          data: {
-            channel,
-            event: "PHOTO_READY",
-            data: { id, dataUrl: null },
-          },
-        }).catch((e) => console.warn(e));
-      });
+    // Upload to Vercel Blob / local disk in background
+    uploadPhoto({ data: { id, dataUrl, eventName: s.eventName } }).catch((err) =>
+      console.error("Failed to upload/save photo in background:", err)
+    );
   }, [channel]);
 
 

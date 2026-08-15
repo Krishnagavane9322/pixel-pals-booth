@@ -117,10 +117,14 @@ function TabletRemote() {
       }
     };
 
-    const handlePhotoReady = async (msg: { id?: string; dataUrl: string }) => {
+    const handlePhotoReady = async (msg: { id?: string; dataUrl?: string }) => {
       setState("preview");
       if (msg.id) setCurrentStripId(msg.id);
-      await loadStripForTablet(msg.id, msg.dataUrl);
+      if (msg.dataUrl) {
+        setStripUrl(msg.dataUrl);
+      } else if (msg.id) {
+        await loadStripForTablet(msg.id, null);
+      }
     };
 
     const handleCameraFrame = (msg: { frame: string }) => {
