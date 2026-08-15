@@ -193,20 +193,17 @@ function Kiosk() {
     const id = uid();
     const s = getSettings();
 
-    // Build the photo strip with a hard 20-second timeout so the "Creating Photo
-    // Strip" screen never freezes forever on slow devices or failed canvas ops.
+    // Build the photo strip with an 8-second timeout so the "Creating Photo
+    // Strip" screen never freezes on slow devices.
     let dataUrl: string;
     try {
       const buildPromise = buildStrip(imgs, s);
       const timeoutPromise = new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error("Strip build timeout after 20s")), 20000)
+        setTimeout(() => reject(new Error("Strip build timeout after 8s")), 8000)
       );
       dataUrl = await Promise.race([buildPromise, timeoutPromise]);
     } catch (err) {
       console.error("[Strip] buildStrip failed or timed out — using first photo as fallback:", err);
-      // Fallback: use the first captured photo as the "strip" so the user isn't
-      // left on the stuck processing screen. It's not a composed strip but it lets
-      // them at least see and download one of their photos.
       dataUrl = imgs[0] ?? "";
     }
 

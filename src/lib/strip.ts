@@ -91,8 +91,10 @@ export async function buildStrip(
   // 1. Load background if floral theme, and all photos
   const isFloral = settings.theme === "floral";
   const bgPromise = isFloral ? loadImg("/floral-bg.png") : Promise.resolve(null);
-  const imgs = await Promise.all(photos.map(loadImg));
+  const loadedImgs = await Promise.all(photos.map(loadImg));
   const bgImg = await bgPromise;
+  const firstValid = loadedImgs.find((img): img is HTMLImageElement => img !== null);
+  const imgs = loadedImgs.map((img) => img || firstValid || null);
 
   // 2. Draw background
   if (isFloral && bgImg) {
@@ -355,25 +357,30 @@ export async function buildStrip(
     }
   }
 
-  return canvas.toDataURL("image/jpeg", 1.0);
+  return canvas.toDataURL("image/jpeg", 0.85);
 }
 
-function loadImg(src: string): Promise<HTMLImageElement> {
-  return new Promise((resolve, reject) => {
+function loadImg(src: string): Promise<HTMLImageElement | null> {
+  if (!src) return Promise.resolve(null);
+  return new Promise((resolve) => {
     const img = new Image();
     img.crossOrigin = "anonymous";
     img.onload = () => resolve(img);
-    img.onerror = reject;
+    img.onerror = () => {
+      console.warn("[Strip] Image load skipped:", src?.substring(0, 40));
+      resolve(null);
+    };
     img.src = src;
   });
 }
 
 function drawCover(
   ctx: CanvasRenderingContext2D,
-  img: HTMLImageElement,
+  img: HTMLImageElement | null,
   x: number, y: number, w: number, h: number,
   zoom: number = 1.0,
 ) {
+  if (!img || !img.width || !img.height) return;
   const ir = img.width / img.height;
   const tr = w / h;
   let sx = 0, sy = 0, sw = img.width, sh = img.height;
@@ -444,6 +451,6 @@ export async function captureFromVideo(video: HTMLVideoElement, cssFilter?: stri
     ctx.filter = "contrast(1.05) saturate(1.08)";
   }
   ctx.drawImage(video, 0, 0, vw, vh);
-  return c.toDataURL("image/jpeg", 1.0);
+  return c.toDataURL("image/jpeg", 0.88);
 }
 
