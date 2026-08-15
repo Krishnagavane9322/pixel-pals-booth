@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from "react";
+import { fetchChannelEvents, type ChannelEventRecord } from "@/lib/sse-broker.server";
 
 // ---------------------------------------------------------------------------
 // ChannelBus — Pusher-compatible event bus
 // Provides the same .bind() / .unbind() / .unbind_all() interface as a Pusher
-// channel object so existing callers (CameraScreen WebRTC code, etc.) work
-// without modification.
+// channel object so existing callers work without modification.
 // ---------------------------------------------------------------------------
 export class ChannelBus {
   // eslint-disable-next-line @typescript-eslint/no-unsafe-function-type
@@ -46,9 +46,7 @@ export class ChannelBus {
 }
 
 // ---------------------------------------------------------------------------
-// useSSEChannel — subscribe to /api/sse?channel=<channel>
-// Returns a stable ChannelBus and a boolean `connected` flag.
-// EventSource auto-reconnects on drop, so no manual retry needed.
+// useSSEChannel — Hybrid SSE + Fast HTTP Polling for Vercel Serverless & Localhost
 // ---------------------------------------------------------------------------
 export function useSSEChannel(channel: string): {
   bus: ChannelBus;
@@ -56,43 +54,88 @@ export function useSSEChannel(channel: string): {
 } {
   const [connected, setConnected] = useState(false);
 
-  // Stable bus reference — never recreated (same object for the component's
-  // lifetime), so callers can safely bind/unbind outside effects.
   const busRef = useRef<ChannelBus | null>(null);
   if (!busRef.current) busRef.current = new ChannelBus();
   const bus = busRef.current;
 
-  useEffect(() => {
-    if (typeof window === "undefined") return; // SSR guard
+  const seenIdsRef = useRef<Set<string>>(new Set());
+  const lastTimestampRef = useRef<number>(Date.now() - 5000);
 
+  const processEventRecord = (rec: { id?: string; event: string; data: unknown; timestamp?: number }) => {
+    if (rec.id) {
+      if (seenIdsRef.current.has(rec.id)) return;
+      seenIdsRef.current.add(rec.id);
+      if (seenIdsRef.current.size > 250) {
+        const arr = Array.from(seenIdsRef.current);
+        seenIdsRef.current = new Set(arr.slice(100));
+      }
+    }
+    if (rec.timestamp && rec.timestamp > lastTimestampRef.current) {
+      lastTimestampRef.current = rec.timestamp;
+    }
+    if (rec.event === "__connected__") {
+      setConnected(true);
+      return;
+    }
+    bus.dispatch(rec.event, rec.data);
+  };
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    let active = true;
+
+    // 1. Try SSE connection (Instant delivery on Localhost / persistent server)
     const url = `/api/sse?channel=${encodeURIComponent(channel)}`;
     const es = new EventSource(url);
 
-    es.onopen = () => setConnected(true);
-
-    es.onerror = () => {
-      setConnected(false);
-      // EventSource will auto-reconnect; no manual action needed
+    es.onopen = () => {
+      if (active) setConnected(true);
     };
 
     es.onmessage = (e: MessageEvent<string>) => {
       try {
-        const msg = JSON.parse(e.data) as { event: string; data: unknown };
-        if (msg.event === "__connected__") {
+        const msg = JSON.parse(e.data) as { event: string; data: unknown; id?: string; timestamp?: number };
+        if (active) {
           setConnected(true);
-          return;
+          processEventRecord(msg);
         }
-        bus.dispatch(msg.event, msg.data);
       } catch {
         // Ignore malformed messages
       }
     };
 
-    return () => {
-      es.close();
-      setConnected(false);
+    es.onerror = () => {
+      // EventSource may fail on Vercel Serverless due to lambda response limits
+      // Fast Polling below guarantees seamless syncing
     };
-  }, [channel, bus]);
+
+    // 2. Fast HTTP Polling fallback loop (450ms) for Vercel Serverless compatibility
+    const pollTimer = setInterval(async () => {
+      if (!active) return;
+      try {
+        const res = (await fetchChannelEvents({
+          data: { channel, since: lastTimestampRef.current },
+        })) as any;
+        if (res && res.success && active) {
+          setConnected(true);
+          if (Array.isArray(res.events)) {
+            res.events.forEach((item: ChannelEventRecord) => {
+              processEventRecord(item);
+            });
+          }
+        }
+      } catch {
+        // Ignore polling glitches
+      }
+    }, 450);
+
+    return () => {
+      active = false;
+      es.close();
+      clearInterval(pollTimer);
+    };
+  }, [channel]);
 
   return { bus, connected };
 }

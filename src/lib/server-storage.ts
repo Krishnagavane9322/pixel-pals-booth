@@ -47,9 +47,18 @@ export const uploadPhoto = createServerFn({ method: "POST" })
         const base64Data = data.dataUrl.split(",")[1];
         const buffer = Buffer.from(base64Data, "base64");
 
-        const dir = path.join(process.cwd(), "public", "photos");
-        if (!fs.existsSync(dir)) {
-          fs.mkdirSync(dir, { recursive: true });
+        let dir = path.join(process.cwd(), "public", "photos");
+        try {
+          if (!fs.existsSync(dir)) {
+            fs.mkdirSync(dir, { recursive: true });
+          }
+        } catch {
+          // Read-only filesystem on Vercel Serverless — fallback to OS temp dir
+          const os = await import("os");
+          dir = path.join(os.tmpdir(), "photos");
+          if (!fs.existsSync(dir)) {
+            fs.mkdirSync(dir, { recursive: true });
+          }
         }
 
         const filename = `${data.id}.jpg`;
