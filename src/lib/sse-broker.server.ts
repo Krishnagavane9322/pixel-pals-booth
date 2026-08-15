@@ -82,7 +82,10 @@ export function getEventsSince(channel: string, since: number): ChannelEventReco
 export const fetchChannelEvents = createServerFn({ method: "POST" })
   .validator((d: any) => d)
   .handler(async (rawPayload: any) => {
-    const payload = rawPayload?.data ?? rawPayload;
+    let payload = rawPayload;
+    while (payload && typeof payload === "object" && payload.data && !payload.channel) {
+      payload = payload.data;
+    }
     const channel = payload?.channel ?? "default";
     const since = payload?.since ?? 0;
     return {

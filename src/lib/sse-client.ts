@@ -104,62 +104,66 @@ export function useSSEChannel(channel: string): {
 
     let active = true;
 
-    // 1. PeerJS P2P Direct Browser Transport (Works 100% on Vercel & Localhost)
+    // 1. PeerJS P2P Direct Browser Transport
     let peerInstance: any = null;
     import("peerjs")
       .then(({ Peer }) => {
         if (!active) return;
         const peerIdClean = channel.replace(/[^a-zA-Z0-9_-]/g, "");
-
-        // Kiosk attempts to host the channel ID, Remote connects to it
         const hostPeerId = `rovi-booth-kiosk-${peerIdClean}`;
-        const peer = new Peer();
-        peerInstance = peer;
+        const isTablet = window.location.pathname.startsWith("/tablet");
 
-        peer.on("open", (id: string) => {
-          if (!active) return;
-          setConnected(true);
-
-          // Try connecting to the host kiosk if we are a remote tablet
-          const conn = peer.connect(hostPeerId, { reliable: true });
-          conn.on("open", () => {
+        if (isTablet) {
+          // Remote Tablet connects to Kiosk host ID
+          const peer = new Peer();
+          peerInstance = peer;
+          peer.on("open", () => {
             if (!active) return;
-            activeP2pConns.add(conn);
+            setConnected(true);
+            const conn = peer.connect(hostPeerId, { reliable: true });
+            conn.on("open", () => {
+              if (!active) return;
+              activeP2pConns.add(conn);
+              setConnected(true);
+            });
+            conn.on("data", (data: any) => {
+              if (!active) return;
+              try {
+                const msg = typeof data === "string" ? JSON.parse(data) : data;
+                processEventRecord(msg);
+              } catch (e) {}
+            });
+            conn.on("close", () => activeP2pConns.delete(conn));
+          });
+        } else {
+          // Kiosk Laptop hosts the channel ID
+          const peer = new Peer(hostPeerId);
+          peerInstance = peer;
+          peer.on("open", () => {
+            if (!active) return;
             setConnected(true);
           });
-          conn.on("data", (data: any) => {
-            if (!active) return;
-            try {
-              const msg = typeof data === "string" ? JSON.parse(data) : data;
-              processEventRecord(msg);
-            } catch (e) {}
+          peer.on("connection", (conn: any) => {
+            conn.on("open", () => {
+              if (!active) return;
+              activeP2pConns.add(conn);
+              setConnected(true);
+            });
+            conn.on("data", (data: any) => {
+              if (!active) return;
+              try {
+                const msg = typeof data === "string" ? JSON.parse(data) : data;
+                processEventRecord(msg);
+              } catch (e) {}
+            });
+            conn.on("close", () => activeP2pConns.delete(conn));
           });
-          conn.on("close", () => activeP2pConns.delete(conn));
-        });
-
-        // Listen for incoming connections (if we are the host kiosk)
-        peer.on("connection", (conn: any) => {
-          conn.on("open", () => {
+          peer.on("error", () => {
             if (!active) return;
-            activeP2pConns.add(conn);
-            setConnected(true);
-          });
-          conn.on("data", (data: any) => {
-            if (!active) return;
-            try {
-              const msg = typeof data === "string" ? JSON.parse(data) : data;
-              processEventRecord(msg);
-            } catch (e) {}
-          });
-          conn.on("close", () => activeP2pConns.delete(conn));
-        });
-
-        peer.on("error", (err: any) => {
-          // If ID is already taken, host the ID directly
-          if (err.type === "unavailable-id") {
-            const hostPeer = new Peer(hostPeerId);
-            peerInstance = hostPeer;
-            hostPeer.on("connection", (conn: any) => {
+            // Fall back to random peer ID if host ID is taken
+            const fallbackPeer = new Peer();
+            peerInstance = fallbackPeer;
+            fallbackPeer.on("connection", (conn: any) => {
               conn.on("open", () => {
                 if (!active) return;
                 activeP2pConns.add(conn);
@@ -174,8 +178,8 @@ export function useSSEChannel(channel: string): {
               });
               conn.on("close", () => activeP2pConns.delete(conn));
             });
-          }
-        });
+          });
+        }
       })
       .catch((err) => console.warn("[P2P] PeerJS import skipped:", err));
 

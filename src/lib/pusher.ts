@@ -2,12 +2,23 @@ import { createServerFn } from "@tanstack/react-start";
 import { publish } from "@/lib/sse-broker.server";
 import { sendP2pMessage } from "@/lib/sse-client";
 
+// Robust payload unwrapper helper: handles single, double, or deeply nested { data: ... } wrappers
+function unwrapPayload(raw: any): { channel?: string; event?: string; data?: any } {
+  let p = raw;
+  while (p && typeof p === "object" && p.data && !p.channel && !p.event) {
+    p = p.data;
+  }
+  return p || {};
+}
+
 const sendPusherServerFn = createServerFn({ method: "POST" })
   .validator((d: any) => d)
   .handler(async (rawPayload: any) => {
-    const payload = rawPayload?.data ?? rawPayload;
-    if (payload && payload.channel && payload.event) {
+    const payload = unwrapPayload(rawPayload);
+    if (payload.channel && payload.event) {
       publish(payload.channel, payload.event, payload.data);
+    } else {
+      console.warn("[Pusher Server] Unhandled payload missing channel/event:", rawPayload);
     }
     return { success: true };
   });
@@ -15,12 +26,12 @@ const sendPusherServerFn = createServerFn({ method: "POST" })
 // Multi-transport sendPusherEvent:
 // Transmits instantly over P2P DataChannel on client + invokes server function
 export async function sendPusherEvent(rawPayload: any): Promise<{ success: boolean }> {
-  const payload = rawPayload?.data ?? rawPayload;
-  if (typeof window !== "undefined" && payload && payload.event) {
+  const payload = unwrapPayload(rawPayload);
+  if (typeof window !== "undefined" && payload.event) {
     sendP2pMessage(payload.event, payload.data);
   }
   try {
-    return await sendPusherServerFn({ data: rawPayload });
+    return await sendPusherServerFn({ data: payload });
   } catch (err) {
     console.warn("[Pusher] ServerFn call fallback:", err);
     return { success: true };
