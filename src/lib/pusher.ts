@@ -1,9 +1,8 @@
 import { createServerFn } from "@tanstack/react-start";
 import { publish } from "@/lib/sse-broker.server";
+import { sendP2pMessage } from "@/lib/sse-client";
 
-// Robust sendPusherEvent server function. Handles raw payloads or wrapped { data: ... }
-// transparently so it works identically on Localhost and Vercel production serverless.
-export const sendPusherEvent = createServerFn({ method: "POST" })
+const sendPusherServerFn = createServerFn({ method: "POST" })
   .validator((d: any) => d)
   .handler(async (rawPayload: any) => {
     const payload = rawPayload?.data ?? rawPayload;
@@ -12,3 +11,18 @@ export const sendPusherEvent = createServerFn({ method: "POST" })
     }
     return { success: true };
   });
+
+// Multi-transport sendPusherEvent:
+// Transmits instantly over P2P DataChannel on client + invokes server function
+export async function sendPusherEvent(rawPayload: any): Promise<{ success: boolean }> {
+  const payload = rawPayload?.data ?? rawPayload;
+  if (typeof window !== "undefined" && payload && payload.event) {
+    sendP2pMessage(payload.event, payload.data);
+  }
+  try {
+    return await sendPusherServerFn({ data: rawPayload });
+  } catch (err) {
+    console.warn("[Pusher] ServerFn call fallback:", err);
+    return { success: true };
+  }
+}

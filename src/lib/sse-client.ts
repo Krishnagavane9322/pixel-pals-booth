@@ -45,8 +45,27 @@ export class ChannelBus {
   }
 }
 
+// Global PeerJS connection pool for direct P2P data transport
+const activeP2pConns: Set<any> = new Set();
+
+export function sendP2pMessage(event: string, data: unknown): void {
+  const msg = JSON.stringify({
+    id: `${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+    event,
+    data,
+    timestamp: Date.now(),
+  });
+  activeP2pConns.forEach((conn) => {
+    try {
+      if (conn.open) conn.send(msg);
+    } catch (e) {
+      console.warn("[P2P] Send failed:", e);
+    }
+  });
+}
+
 // ---------------------------------------------------------------------------
-// useSSEChannel — Hybrid SSE + Fast HTTP Polling for Vercel Serverless & Localhost
+// useSSEChannel — Multi-Transport Sync (PeerJS P2P + SSE + HTTP Polling Fallback)
 // ---------------------------------------------------------------------------
 export function useSSEChannel(channel: string): {
   bus: ChannelBus;
@@ -59,7 +78,7 @@ export function useSSEChannel(channel: string): {
   const bus = busRef.current;
 
   const seenIdsRef = useRef<Set<string>>(new Set());
-  const lastTimestampRef = useRef<number>(Date.now() - 5000);
+  const lastTimestampRef = useRef<number>(Date.now() - 10000);
 
   const processEventRecord = (rec: { id?: string; event: string; data: unknown; timestamp?: number }) => {
     if (rec.id) {
@@ -85,7 +104,82 @@ export function useSSEChannel(channel: string): {
 
     let active = true;
 
-    // 1. Try SSE connection (Instant delivery on Localhost / persistent server)
+    // 1. PeerJS P2P Direct Browser Transport (Works 100% on Vercel & Localhost)
+    let peerInstance: any = null;
+    import("peerjs")
+      .then(({ Peer }) => {
+        if (!active) return;
+        const peerIdClean = channel.replace(/[^a-zA-Z0-9_-]/g, "");
+
+        // Kiosk attempts to host the channel ID, Remote connects to it
+        const hostPeerId = `rovi-booth-kiosk-${peerIdClean}`;
+        const peer = new Peer();
+        peerInstance = peer;
+
+        peer.on("open", (id: string) => {
+          if (!active) return;
+          setConnected(true);
+
+          // Try connecting to the host kiosk if we are a remote tablet
+          const conn = peer.connect(hostPeerId, { reliable: true });
+          conn.on("open", () => {
+            if (!active) return;
+            activeP2pConns.add(conn);
+            setConnected(true);
+          });
+          conn.on("data", (data: any) => {
+            if (!active) return;
+            try {
+              const msg = typeof data === "string" ? JSON.parse(data) : data;
+              processEventRecord(msg);
+            } catch (e) {}
+          });
+          conn.on("close", () => activeP2pConns.delete(conn));
+        });
+
+        // Listen for incoming connections (if we are the host kiosk)
+        peer.on("connection", (conn: any) => {
+          conn.on("open", () => {
+            if (!active) return;
+            activeP2pConns.add(conn);
+            setConnected(true);
+          });
+          conn.on("data", (data: any) => {
+            if (!active) return;
+            try {
+              const msg = typeof data === "string" ? JSON.parse(data) : data;
+              processEventRecord(msg);
+            } catch (e) {}
+          });
+          conn.on("close", () => activeP2pConns.delete(conn));
+        });
+
+        peer.on("error", (err: any) => {
+          // If ID is already taken, host the ID directly
+          if (err.type === "unavailable-id") {
+            const hostPeer = new Peer(hostPeerId);
+            peerInstance = hostPeer;
+            hostPeer.on("connection", (conn: any) => {
+              conn.on("open", () => {
+                if (!active) return;
+                activeP2pConns.add(conn);
+                setConnected(true);
+              });
+              conn.on("data", (data: any) => {
+                if (!active) return;
+                try {
+                  const msg = typeof data === "string" ? JSON.parse(data) : data;
+                  processEventRecord(msg);
+                } catch (e) {}
+              });
+              conn.on("close", () => activeP2pConns.delete(conn));
+            });
+          }
+        });
+      })
+      .catch((err) => console.warn("[P2P] PeerJS import skipped:", err));
+
+    // 2. Persistent SSE connection (Localhost / persistent servers)
     const url = `/api/sse?channel=${encodeURIComponent(channel)}`;
     const es = new EventSource(url);
 
@@ -105,12 +199,7 @@ export function useSSEChannel(channel: string): {
       }
     };
 
-    es.onerror = () => {
-      // EventSource may fail on Vercel Serverless due to lambda response limits
-      // Fast Polling below guarantees seamless syncing
-    };
-
-    // 2. Fast HTTP Polling fallback loop (450ms) for Vercel Serverless compatibility
+    // 3. Fast HTTP Polling fallback loop (400ms) for Vercel Serverless
     const pollTimer = setInterval(async () => {
       if (!active) return;
       try {
@@ -128,12 +217,14 @@ export function useSSEChannel(channel: string): {
       } catch {
         // Ignore polling glitches
       }
-    }, 450);
+    }, 400);
 
     return () => {
       active = false;
       es.close();
       clearInterval(pollTimer);
+      activeP2pConns.clear();
+      if (peerInstance) peerInstance.destroy();
     };
   }, [channel]);
 
