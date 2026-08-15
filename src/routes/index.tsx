@@ -86,6 +86,35 @@ function Kiosk() {
     }
   }, [channel]);
 
+  // Background camera stream pre-warmer: keeps camera stream 100% active & warm
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    let stream: MediaStream | null = null;
+    const initCamera = async () => {
+      try {
+        const videoConstraints: MediaTrackConstraints = {
+          width: { ideal: 3840, min: 1920 },
+          height: { ideal: 2160, min: 1080 },
+          frameRate: { ideal: 30 },
+        };
+        if (settings.cameraId) {
+          videoConstraints.deviceId = { exact: settings.cameraId };
+        } else {
+          videoConstraints.facingMode = "user";
+        }
+        stream = await navigator.mediaDevices.getUserMedia({ video: videoConstraints, audio: false });
+        (window as any).__roviCameraStream = stream;
+      } catch (e) {
+        console.warn("Background camera pre-warm skipped:", e);
+      }
+    };
+    initCamera();
+    return () => {
+      if (stream) stream.getTracks().forEach((t) => t.stop());
+      delete (window as any).__roviCameraStream;
+    };
+  }, [settings.cameraId]);
+
   // Bind kiosk control events from the tablet remote over SSE
   useEffect(() => {
     const handleStart = () => start();
@@ -503,32 +532,44 @@ function CameraScreen({
 
     (async () => {
       try {
-        const videoConstraints: MediaTrackConstraints = {
-          width: { ideal: 3840, min: 1920 },
-          height: { ideal: 2160, min: 1080 },
-          frameRate: { ideal: 30 },
-        };
-
-        if (settings.cameraId) {
-          videoConstraints.deviceId = { exact: settings.cameraId };
-        } else {
-          videoConstraints.facingMode = "user";
+        if ((window as any).__roviCameraStream) {
+          const preStream: MediaStream = (window as any).__roviCameraStream;
+          const activeTrack = preStream.getVideoTracks()[0];
+          if (activeTrack && activeTrack.readyState === "live") {
+            stream = preStream;
+          }
         }
 
-        try {
-          stream = await navigator.mediaDevices.getUserMedia({
-            video: videoConstraints,
-            audio: false,
-          });
-        } catch (deviceErr) {
+        if (!stream) {
+          const videoConstraints: MediaTrackConstraints = {
+            width: { ideal: 3840, min: 1920 },
+            height: { ideal: 2160, min: 1080 },
+            frameRate: { ideal: 30 },
+          };
+
           if (settings.cameraId) {
-            console.warn("Selected camera failed, falling back to default camera:", deviceErr);
+            videoConstraints.deviceId = { exact: settings.cameraId };
+          } else {
+            videoConstraints.facingMode = "user";
+          }
+
+          try {
             stream = await navigator.mediaDevices.getUserMedia({
-              video: { facingMode: "user", width: { ideal: 3840, min: 1920 }, height: { ideal: 2160, min: 1080 } },
+              video: videoConstraints,
               audio: false,
             });
-          } else {
-            throw deviceErr;
+            (window as any).__roviCameraStream = stream;
+          } catch (deviceErr) {
+            if (settings.cameraId) {
+              console.warn("Selected camera failed, falling back to default camera:", deviceErr);
+              stream = await navigator.mediaDevices.getUserMedia({
+                video: { facingMode: "user", width: { ideal: 3840, min: 1920 }, height: { ideal: 2160, min: 1080 } },
+                audio: false,
+              });
+              (window as any).__roviCameraStream = stream;
+            } else {
+              throw deviceErr;
+            }
           }
         }
 
@@ -685,7 +726,7 @@ function CameraScreen({
         if (cancelled || !videoRef.current) return;
 
         // 4. Capture 4K Ultra HD photo under full flash light
-        const img = captureFromVideo(videoRef.current, cssFilter);
+        const img = await captureFromVideo(videoRef.current, cssFilter);
         photosRef.current.push(img);
         playShutterSound();
 
