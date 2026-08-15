@@ -643,23 +643,29 @@ function CameraScreen({
           }
         }
 
-        // Wait for the browser to load video metadata before calling play()
-        // This prevents the "play() interrupted by load request" AbortError
-        await new Promise<void>((resolve, reject) => {
-          const onReady = () => { video.removeEventListener("loadedmetadata", onReady); resolve(); };
-          const onError = (e: Event) => { video.removeEventListener("error", onError); reject(e); };
-          video.addEventListener("loadedmetadata", onReady);
-          video.addEventListener("error", onError);
-        });
+        // If video metadata is already loaded (from pre-warmed stream), proceed instantly without waiting
+        if (video.readyState < 2) {
+          await new Promise<void>((resolve) => {
+            const onReady = () => {
+              video.removeEventListener("loadedmetadata", onReady);
+              resolve();
+            };
+            const timer = setTimeout(resolve, 500); // safety fallback timeout
+            video.addEventListener("loadedmetadata", () => {
+              clearTimeout(timer);
+              onReady();
+            });
+          });
+        }
 
         if (cancelled) return;
 
+        video.muted = true;
+        video.defaultMuted = true;
         try {
           await video.play();
         } catch (playErr: any) {
-          // AbortError happens when component unmounts mid-play — safe to ignore
           if (playErr?.name === "AbortError") return;
-          throw playErr;
         }
 
         if (!cancelled) setReady(true);
