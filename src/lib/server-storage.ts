@@ -29,17 +29,21 @@ function cleanupStripStore() {
 
 // ── Server function to store photo strip base64 on server ──────────────────
 export const storeStripData = createServerFn({ method: "POST" })
-  .validator((d: { id: string; dataUrl: string }) => d)
-  .handler(async ({ data }) => {
-    cleanupStripStore();
-    stripStore.set(data.id, { dataUrl: data.dataUrl, createdAt: Date.now() });
+  .validator((d: any) => d)
+  .handler(async (rawPayload: any) => {
+    const data = rawPayload?.data ?? rawPayload;
+    if (data && data.id && data.dataUrl) {
+      cleanupStripStore();
+      stripStore.set(data.id, { dataUrl: data.dataUrl, createdAt: Date.now() });
+    }
     return { success: true };
   });
 
 // Server function to upload photo strip to Vercel Blob
 export const uploadPhoto = createServerFn({ method: "POST" })
-  .validator((d: { id: string; dataUrl: string; eventName: string }) => d)
-  .handler(async ({ data }) => {
+  .validator((d: any) => d)
+  .handler(async (rawPayload: any) => {
+    const data = rawPayload?.data ?? rawPayload;
     // Check if token exists, if not fall back to local disk storage
     if (!process.env.BLOB_READ_WRITE_TOKEN) {
       console.warn("BLOB_READ_WRITE_TOKEN environment variable is not defined. Saving to local public/photos/.");
@@ -93,8 +97,9 @@ export const uploadPhoto = createServerFn({ method: "POST" })
 // Server function to get strip as base64 data URL (for tablet preview)
 // Checks in-memory store first (works on Vercel), then falls back to local disk
 export const getStripData = createServerFn({ method: "GET" })
-  .validator((id: string) => id)
-  .handler(async ({ data: id }) => {
+  .validator((d: any) => d)
+  .handler(async (rawPayload: any) => {
+    const id = typeof rawPayload === "string" ? rawPayload : (rawPayload?.data ?? rawPayload);
     // 1. Check in-memory store first (works on Vercel deployment)
     const inMemory = stripStore.get(id);
     if (inMemory) {
@@ -120,8 +125,9 @@ export const getStripData = createServerFn({ method: "GET" })
 
 // Server function to fetch photo strip from Vercel Blob
 export const getCloudPhoto = createServerFn({ method: "GET" })
-  .validator((id: string) => id)
-  .handler(async ({ data: id }) => {
+  .validator((d: any) => d)
+  .handler(async (rawPayload: any) => {
+    const id = typeof rawPayload === "string" ? rawPayload : (rawPayload?.data ?? rawPayload);
     if (!process.env.BLOB_READ_WRITE_TOKEN) {
       try {
         const filename = `${id}.jpg`;

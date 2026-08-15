@@ -1,11 +1,14 @@
 import { createServerFn } from "@tanstack/react-start";
 import { publish } from "@/lib/sse-broker.server";
 
-// Drop-in replacement for the old Pusher-based sendPusherEvent.
-// All callers in index.tsx and tablet.tsx remain unchanged.
+// Robust sendPusherEvent server function. Handles raw payloads or wrapped { data: ... }
+// transparently so it works identically on Localhost and Vercel production serverless.
 export const sendPusherEvent = createServerFn({ method: "POST" })
-  .validator((d: { channel: string; event: string; data: unknown }) => d)
-  .handler(async ({ data }) => {
-    publish(data.channel, data.event, data.data);
+  .validator((d: any) => d)
+  .handler(async (rawPayload: any) => {
+    const payload = rawPayload?.data ?? rawPayload;
+    if (payload && payload.channel && payload.event) {
+      publish(payload.channel, payload.event, payload.data);
+    }
     return { success: true };
   });

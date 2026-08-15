@@ -80,11 +80,14 @@ export function getEventsSince(channel: string, since: number): ChannelEventReco
 
 // Server function for client HTTP polling fallback (works on Vercel Serverless)
 export const fetchChannelEvents = createServerFn({ method: "POST" })
-  .validator((d: { channel: string; since: number }) => d)
-  .handler(async ({ data }) => {
+  .validator((d: any) => d)
+  .handler(async (rawPayload: any) => {
+    const payload = rawPayload?.data ?? rawPayload;
+    const channel = payload?.channel ?? "default";
+    const since = payload?.since ?? 0;
     return {
       success: true,
-      events: getEventsSince(data.channel, data.since),
+      events: getEventsSince(channel, since),
       serverTime: Date.now(),
     };
   });
