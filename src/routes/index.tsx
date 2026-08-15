@@ -221,6 +221,11 @@ function Kiosk() {
         <SettingsIcon className="w-5 h-5" />
       </button>
 
+      {/* Top-Level Studio White Camera Flash Overlay */}
+      {cameraState.flash && (
+        <div className="fixed inset-0 bg-white z-[99999] pointer-events-none" />
+      )}
+
       <AnimatePresence mode="wait">
         {screen === "welcome" && <Welcome key="w" onStart={start} settings={settings} />}
         {screen === "camera" && (
@@ -799,7 +804,7 @@ function CameraScreen({
               </motion.div>
             )}
           </AnimatePresence>
-          {flash && <div className="fixed inset-0 bg-white z-[9999] pointer-events-none animate-pulse" />}
+          {flash && <div className="fixed inset-0 bg-white z-[99999] pointer-events-none" />}
         </div>
       </div>
 

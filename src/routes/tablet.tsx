@@ -508,6 +508,11 @@ function TabletRemote() {
 
   return (
     <div className="fixed inset-0 grid-bg overflow-hidden select-none">
+      {/* Top-Level Studio White Camera Flash Overlay */}
+      {flash && (
+        <div className="fixed inset-0 bg-white z-[99999] pointer-events-none" />
+      )}
+
       {/* Small channel tag */}
       <div className="absolute top-4 left-4 text-xs font-mono text-muted-foreground/30 z-10">
         CH: {channel}
@@ -611,7 +616,7 @@ function TabletRemote() {
                 </AnimatePresence>
 
                 {/* White flash mirroring */}
-                {flash && <div className="fixed inset-0 bg-white z-[9999] pointer-events-none animate-pulse" />}
+                {flash && <div className="fixed inset-0 bg-white z-[99999] pointer-events-none" />}
               </div>
             </div>
 
