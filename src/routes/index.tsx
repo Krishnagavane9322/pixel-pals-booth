@@ -587,9 +587,9 @@ function CameraScreen({
     };
   }, [ready, channelName]);
 
-  // Live camera frame relay — JPEG fallback for when WebRTC is establishing/unavailable.
-  // Uses a persistent reusable canvas (created once, not per-frame) and only POSTs
-  // when the WebRTC peer is NOT in "connected" state — no wasted bandwidth when P2P works.
+  // Live camera frame relay — dual transport (PeerJS P2P + /api/frame POST)
+  // Runs continuously at 150ms during camera mode to ensure tablet preview
+  // is 100% live and active at all times, including during countdowns and picture clicking.
   useEffect(() => {
     if (!ready) return;
 
@@ -604,8 +604,6 @@ function CameraScreen({
 
     const interval = setInterval(async () => {
       if (!videoRef.current || !ctx || videoRef.current.readyState < 2) return;
-      // Skip snapshot POSTs when WebRTC peer-to-peer video stream is active
-      if (peerRef.current?.connectionState === "connected") return;
       if (isPosting) return;
 
       try {
@@ -638,7 +636,7 @@ function CameraScreen({
       } finally {
         isPosting = false;
       }
-    }, 150); // 150ms ≈ 6-7 fps fallback — enough for preview without flooding server
+    }, 150);
 
     return () => {
       active = false;
@@ -850,10 +848,15 @@ function CameraScreen({
             const adv: any = {};
             if (caps.torch) adv.torch = true;
             if (caps.fillLightMode) adv.fillLightMode = "flash";
-            if (caps.focusMode?.includes("single-shot")) adv.focusMode = "single-shot";
-            else if (caps.focusMode?.includes("continuous")) adv.focusMode = "continuous";
+
+            // Force auto-focus metering before shutter release
+            if (caps.focusMode) {
+              if (caps.focusMode.includes("single-shot")) adv.focusMode = "single-shot";
+              else if (caps.focusMode.includes("continuous")) adv.focusMode = "continuous";
+            }
+
             if (Object.keys(adv).length > 0) {
-              (track as any).applyConstraints({ advanced: [adv] }).catch(() => {});
+              await (track as any).applyConstraints({ advanced: [adv] }).catch(() => {});
             }
           }
         } catch (e) {}
@@ -867,8 +870,8 @@ function CameraScreen({
           },
         }).catch(() => {});
 
-        // 3. Wait 150ms for camera sensor to adjust to bright white flash illumination
-        await wait(150);
+        // 3. Wait 200ms for camera lens auto-focus motor to lock and sensor to adjust to flash
+        await wait(200);
         if (cancelled || !videoRef.current) return;
 
         // 4. Capture photo (waitForFrames ensures sensor settled after flash)

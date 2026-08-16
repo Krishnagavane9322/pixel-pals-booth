@@ -797,8 +797,8 @@ function TabletRemote() {
                   }}
                 />
 
-                {/* Fallback live snapshot stream if WebRTC is unavailable */}
-                {snapshotUrl && !hasWebRtcVideo && (
+                {/* Fallback live snapshot stream — rendered at z-[5] as an instant fallback behind WebRTC video at z-10 */}
+                {snapshotUrl && (
                   <img
                     src={snapshotUrl}
                     alt="Live camera feed"

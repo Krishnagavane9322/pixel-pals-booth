@@ -471,6 +471,6 @@ export async function captureFromVideo(video: HTMLVideoElement, cssFilter?: stri
     ctx.filter = "contrast(1.05) saturate(1.08)";
   }
   ctx.drawImage(video, 0, 0, vw, vh);
-  return c.toDataURL("image/jpeg", 0.88);
+  return c.toDataURL("image/jpeg", 0.95);
 }
 
