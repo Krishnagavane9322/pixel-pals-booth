@@ -62,12 +62,22 @@ const DLS_KEY = "rovi.downloads";
 const isBrowser = () => typeof window !== "undefined";
 
 export function getSettings(): Settings {
-  if (!isBrowser()) return DEFAULTS;
+  if (!isBrowser()) return { ...DEFAULTS };
   try {
     const raw = localStorage.getItem(SETTINGS_KEY);
-    return raw ? { ...DEFAULTS, ...JSON.parse(raw) } : DEFAULTS;
+    if (!raw) return { ...DEFAULTS };
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return { ...DEFAULTS };
+
+    const cleaned: any = {};
+    for (const key of Object.keys(DEFAULTS) as Array<keyof Settings>) {
+      cleaned[key] = (parsed[key] !== undefined && parsed[key] !== null)
+        ? parsed[key]
+        : DEFAULTS[key];
+    }
+    return cleaned as Settings;
   } catch {
-    return DEFAULTS;
+    return { ...DEFAULTS };
   }
 }
 export function saveSettings(s: Settings) {

@@ -339,6 +339,7 @@ function TabletRemote() {
 
     let active = true;
     let lastSignalTs = 0;
+    let signalPolling = true;
 
     const postSignal = (type: string, data: any) => {
       fetch(`/api/signal?channel=${encodeURIComponent(channel)}`, {
@@ -366,7 +367,15 @@ function TabletRemote() {
       tabletPeerRef.current = pc;
 
       pc.onconnectionstatechange = () => {
-        console.log("[WebRTC] Tablet peer state:", pc.connectionState);
+        const state = pc.connectionState;
+        console.log("[WebRTC] Tablet peer state:", state);
+        if (state === "connected") {
+          // WebRTC is live — hide JPEG fallback
+          setHasWebRtcVideo(true);
+        } else if (state === "disconnected" || state === "failed") {
+          // WebRTC dropped — re-enable JPEG fallback while we try to recover
+          setHasWebRtcVideo(false);
+        }
       };
 
       pc.ontrack = (e) => {
@@ -420,28 +429,30 @@ function TabletRemote() {
     channelBus.bind("SDP_OFFER", handleSdpOffer);
     channelBus.bind("ICE_HOST", handleIceHost);
 
-    // Poll /api/signal for SDP_OFFER and ICE_HOST from laptop
-    const pollSignal = async () => {
-      if (!active) return;
-      try {
-        const res = await fetch(`/api/signal?channel=${encodeURIComponent(channel)}&since=${lastSignalTs}`);
-        if (!res.ok || !active) return;
-        const json = await res.json();
-        if (json.success && Array.isArray(json.signals)) {
-          for (const item of json.signals) {
-            if (item.ts > lastSignalTs) lastSignalTs = item.ts;
-            if (item.type === "SDP_OFFER") handleSdpOffer(item.data);
-            if (item.type === "ICE_HOST") handleIceHost(item.data);
+    // Sequential signal polling — 300ms gap between requests prevents overlapping
+    // concurrent fetches during ICE exchange, which was a major cause of lag.
+    const runSignalPoll = async () => {
+      while (active && signalPolling) {
+        try {
+          const res = await fetch(`/api/signal?channel=${encodeURIComponent(channel)}&since=${lastSignalTs}`);
+          if (!res.ok || !active) { await new Promise((r) => setTimeout(r, 300)); continue; }
+          const json = await res.json();
+          if (json.success && Array.isArray(json.signals)) {
+            for (const item of json.signals) {
+              if (item.ts > lastSignalTs) lastSignalTs = item.ts;
+              if (item.type === "SDP_OFFER") handleSdpOffer(item.data);
+              if (item.type === "ICE_HOST") handleIceHost(item.data);
+            }
           }
-        }
-      } catch {}
+        } catch { /* transient errors are fine */ }
+        await new Promise((r) => setTimeout(r, 300));
+      }
     };
-
-    const signalInterval = setInterval(pollSignal, 800);
+    runSignalPoll();
 
     return () => {
       active = false;
-      clearInterval(signalInterval);
+      signalPolling = false;
       channelBus.unbind("SDP_OFFER", handleSdpOffer);
       channelBus.unbind("ICE_HOST", handleIceHost);
       tabletPeerRef.current?.close();
@@ -451,39 +462,53 @@ function TabletRemote() {
     };
   }, [state, channel, connected, channelBus]);
 
-  // ── Direct /api/frame polling — the low-latency camera preview path ─────────
-  // Bypasses the SSE broker (which is broken on Vercel Serverless) entirely.
-  // The kiosk POSTs a 240×180 JPEG to /api/frame every 150ms.
-  // We poll every 100ms so the displayed frame is at most ~250ms behind live.
-  // Stop polling when WebRTC video is active (hasWebRtcVideo) — no need to poll
-  // when we already have a real-time stream.
+  // ── Direct /api/frame polling — low-latency JPEG camera preview fallback ────
+  // The kiosk POSTs a 640×480 JPEG to /api/frame every 150ms.
+  // We poll sequentially (await response, wait 150ms) so there are NEVER
+  // concurrent GET requests competing with WebRTC ICE traffic.
+  // Skips React render when frame timestamp is unchanged.
+  // Pauses automatically when WebRTC stream is active (hasWebRtcVideo).
+  const lastFrameTsRef = useRef<number>(0);
   useEffect(() => {
-    if (state !== "camera") return; // only poll during camera session
+    if (state !== "camera") return;
 
     let active = true;
-    let lastTs = 0; // track last seen frame timestamp to avoid duplicate renders
 
-    const poll = async () => {
-      if (!active || hasWebRtcVideo) return;
-      try {
-        const res = await fetch(`/api/frame?channel=${encodeURIComponent(channel)}`);
-        if (!res.ok || !active) return;
-        const data = await res.json() as { frame: string | null; ts?: number };
-        if (data.frame && data.ts !== lastTs) {
-          lastTs = data.ts ?? 0;
-          setSnapshotUrl(data.frame);
+    const runFramePoll = async () => {
+      while (active) {
+        if (hasWebRtcVideo) {
+          // WebRTC is streaming — no need to poll JPEG; check again in 500ms
+          await new Promise((r) => setTimeout(r, 500));
+          continue;
         }
-      } catch {
-        // Network error — silently retry on next tick
+        try {
+          const res = await fetch(`/api/frame?channel=${encodeURIComponent(channel)}`);
+          if (!res.ok || !active) { await new Promise((r) => setTimeout(r, 150)); continue; }
+          const data = await res.json() as { frame: string | null; ts?: number };
+
+          // Explicit Guard: If frame is missing/null, skip update entirely
+          if (!data.frame) {
+            await new Promise((r) => setTimeout(r, 150));
+            continue;
+          }
+
+          // Explicit Guard: If frame timestamp is identical to current frame, skip update
+          if (data.ts && data.ts === lastFrameTsRef.current) {
+            await new Promise((r) => setTimeout(r, 150));
+            continue;
+          }
+
+          // Genuinely new frame received
+          lastFrameTsRef.current = data.ts || Date.now();
+          setSnapshotUrl(data.frame);
+        } catch { /* transient network errors — silently retry */ }
+        await new Promise((r) => setTimeout(r, 150));
       }
     };
 
-    const timer = setInterval(poll, 100); // 100ms = up to 10 frames/sec max
-    poll(); // immediate first fetch
-    return () => {
-      active = false;
-      clearInterval(timer);
-    };
+    runFramePoll();
+
+    return () => { active = false; };
   }, [state, channel, hasWebRtcVideo]);
 
   const handleStart = () => {
@@ -762,7 +787,14 @@ function TabletRemote() {
                   playsInline
                   muted
                   className={`absolute inset-0 w-full h-full object-cover z-10 transition-opacity duration-300 ${hasWebRtcVideo ? "opacity-100" : "opacity-0"}`}
-                  style={{ transform: "scaleX(-1) translateZ(0)", willChange: "transform, opacity" }}
+                  style={{
+                    // translateZ(0) MUST come first — it promotes the element to its own
+                    // GPU compositing layer so the browser renders the video pipeline
+                    // entirely on the GPU, eliminating main-thread paint every frame.
+                    transform: "translateZ(0) scaleX(-1)",
+                    willChange: "transform, opacity",
+                    backfaceVisibility: "hidden",
+                  }}
                 />
 
                 {/* Fallback live snapshot stream if WebRTC is unavailable */}
@@ -771,7 +803,7 @@ function TabletRemote() {
                     src={snapshotUrl}
                     alt="Live camera feed"
                     className="absolute inset-0 w-full h-full object-cover z-[5]"
-                    style={{ transform: "translateZ(0)", willChange: "src, transform" }}
+                    style={{ transform: "translateZ(0)" }}
                   />
                 )}
 
@@ -945,30 +977,30 @@ function TabletRemote() {
             <div className="text-muted-foreground">AI is composing your memory…</div>
           </motion.div>
         )}
-
-        {/* Admin Settings Button */}
-        <button
-          aria-label="admin-visible"
-          onClick={() => setAdminOpen(true)}
-          className="absolute top-3 right-3 z-40 p-3 rounded-full bg-card/60 backdrop-blur border border-border opacity-30 hover:opacity-100 transition"
-        >
-          <SettingsIcon className="w-5 h-5" />
-        </button>
-
-        <AdminPanel
-          open={adminOpen}
-          onClose={() => setAdminOpen(false)}
-          onSave={(newSettings) => {
-            saveSettings(newSettings);
-            setSettings(newSettings);
-            if (newSettings.printLayout) setPrintLayout(newSettings.printLayout as "2x6" | "4x6");
-            if (newSettings.eventName) setEventName(newSettings.eventName);
-            if (newSettings.enablePrint !== undefined) setEnablePrint(newSettings.enablePrint);
-            if (newSettings.enableQR !== undefined) setEnableQR(newSettings.enableQR);
-            triggerEvent("SETTINGS_UPDATE", newSettings);
-          }}
-        />
       </AnimatePresence>
+
+      {/* Admin Settings Button */}
+      <button
+        aria-label="admin-visible"
+        onClick={() => setAdminOpen(true)}
+        className="absolute top-3 right-3 z-40 p-3 rounded-full bg-card/60 backdrop-blur border border-border opacity-30 hover:opacity-100 transition"
+      >
+        <SettingsIcon className="w-5 h-5" />
+      </button>
+
+      <AdminPanel
+        open={adminOpen}
+        onClose={() => setAdminOpen(false)}
+        onSave={(newSettings) => {
+          saveSettings(newSettings);
+          setSettings(newSettings);
+          if (newSettings.printLayout) setPrintLayout(newSettings.printLayout as "2x6" | "4x6");
+          if (newSettings.eventName) setEventName(newSettings.eventName);
+          if (newSettings.enablePrint !== undefined) setEnablePrint(newSettings.enablePrint);
+          if (newSettings.enableQR !== undefined) setEnableQR(newSettings.enableQR);
+          triggerEvent("SETTINGS_UPDATE", newSettings);
+        }}
+      />
     </div>
   );
 }

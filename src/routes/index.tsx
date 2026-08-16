@@ -104,19 +104,28 @@ function Kiosk() {
     const initCamera = async () => {
       try {
         const videoConstraints: MediaTrackConstraints = {
-          width: { ideal: 3840 },
-          height: { ideal: 2160 },
-          frameRate: { ideal: 30 },
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
         };
         if (settings.cameraId) {
           videoConstraints.deviceId = { exact: settings.cameraId };
         } else {
           videoConstraints.facingMode = "user";
         }
-        stream = await navigator.mediaDevices.getUserMedia({ video: videoConstraints, audio: false });
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({ video: videoConstraints, audio: false });
+        } catch (constraintErr) {
+          console.warn("[Camera Pre-warm] Ideal constraints failed, falling back to default video:", constraintErr);
+          stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+        }
         (window as any).__roviCameraStream = stream;
+        const track = stream.getVideoTracks()[0];
+        if (track) {
+          const s = track.getSettings();
+          console.log(`[Camera Pre-warm] Live: ${s.width}×${s.height}@${s.frameRate}fps`);
+        }
       } catch (e) {
-        console.warn("Background camera pre-warm skipped:", e);
+        console.warn("[Camera Pre-warm] Camera access skipped or denied:", e);
       }
     };
     initCamera();
@@ -417,6 +426,7 @@ function CameraScreen({
     const pCh = pusherChannelRef.current;
     let active = true;
     let lastSignalTs = 0;
+    let signalPolling = true;
 
     const postSignal = (type: string, data: any) => {
       fetch(`/api/signal?channel=${encodeURIComponent(channelName)}`, {
@@ -461,6 +471,26 @@ function CameraScreen({
         if (!active) return;
         postSignal("SDP_OFFER", { sdp: { type: pc.localDescription!.type, sdp: pc.localDescription!.sdp } });
         console.log("[WebRTC] SDP offer sent to tablet via /api/signal & P2P");
+
+        // Configure video sender for high-quality encoding after offer is created
+        // This must be done after setLocalDescription but BEFORE the answer arrives
+        for (const sender of pc.getSenders()) {
+          if (sender.track?.kind !== "video") continue;
+          try {
+            const params = sender.getParameters();
+            if (!params.encodings || params.encodings.length === 0) {
+              params.encodings = [{}];
+            }
+            params.encodings[0].maxBitrate = 2_500_000;  // 2.5 Mbps for sharp 720p
+            params.encodings[0].maxFramerate = 30;
+            params.encodings[0].scaleResolutionDownBy = 1; // no downscaling
+            await sender.setParameters(params);
+            console.log("[WebRTC] Video sender encoding configured: 2.5Mbps@30fps");
+          } catch (encErr) {
+            // setParameters() is best-effort — some browsers reject it before negotiation
+            console.warn("[WebRTC] Could not set sender parameters (will retry after answer):", encErr);
+          }
+        }
       } catch (err) {
         console.warn("WebRTC offer failed:", err);
       }
@@ -483,6 +513,20 @@ function CameraScreen({
         }
         pendingCandidatesRef.current = [];
         console.log("[WebRTC] SDP answer set — connection should stream now");
+
+        // Re-apply encoding params after answer is set (full negotiation complete)
+        for (const sender of pc.getSenders()) {
+          if (sender.track?.kind !== "video") continue;
+          try {
+            const params = sender.getParameters();
+            if (params.encodings && params.encodings.length > 0) {
+              params.encodings[0].maxBitrate = 2_500_000;
+              params.encodings[0].maxFramerate = 30;
+              params.encodings[0].scaleResolutionDownBy = 1;
+              await sender.setParameters(params);
+            }
+          } catch { /* best-effort */ }
+        }
       } catch (err) {
         console.warn("Failed to set remote description on host:", err);
       }
@@ -508,29 +552,31 @@ function CameraScreen({
       pCh.bind("ICE_VIEWER", handleIceViewer);
     }
 
-    // Poll /api/signal for WebRTC answers and viewer candidates
-    const pollSignal = async () => {
-      if (!active) return;
-      try {
-        const res = await fetch(`/api/signal?channel=${encodeURIComponent(channelName)}&since=${lastSignalTs}`);
-        if (!res.ok || !active) return;
-        const json = await res.json();
-        if (json.success && Array.isArray(json.signals)) {
-          for (const item of json.signals) {
-            if (item.ts > lastSignalTs) lastSignalTs = item.ts;
-            if (item.type === "VIEWER_READY") handleViewerReady();
-            if (item.type === "SDP_ANSWER") handleSdpAnswer(item.data);
-            if (item.type === "ICE_VIEWER") handleIceViewer(item.data);
+    // Sequential signal polling (300ms gap between requests) — prevents overlapping
+    // concurrent fetches that can clog the network queue during ICE exchange.
+    const runSignalPoll = async () => {
+      while (active && signalPolling) {
+        try {
+          const res = await fetch(`/api/signal?channel=${encodeURIComponent(channelName)}&since=${lastSignalTs}`);
+          if (!res.ok || !active) { await new Promise((r) => setTimeout(r, 300)); continue; }
+          const json = await res.json();
+          if (json.success && Array.isArray(json.signals)) {
+            for (const item of json.signals) {
+              if (item.ts > lastSignalTs) lastSignalTs = item.ts;
+              if (item.type === "VIEWER_READY") handleViewerReady();
+              if (item.type === "SDP_ANSWER") handleSdpAnswer(item.data);
+              if (item.type === "ICE_VIEWER") handleIceViewer(item.data);
+            }
           }
-        }
-      } catch {}
+        } catch { /* ignore transient errors */ }
+        await new Promise((r) => setTimeout(r, 300));
+      }
     };
-
-    const signalInterval = setInterval(pollSignal, 800);
+    runSignalPoll();
 
     return () => {
       active = false;
-      clearInterval(signalInterval);
+      signalPolling = false;
       if (pCh) {
         pCh.unbind("VIEWER_READY", handleViewerReady);
         pCh.unbind("SDP_ANSWER", handleSdpAnswer);
@@ -541,37 +587,39 @@ function CameraScreen({
     };
   }, [ready, channelName]);
 
-  // Live camera frame relay — dual transport (PeerJS P2P + /api/frame POST)
-  // 1. sendPusherEvent transmits instantly via PeerJS DataChannel (10ms P2P)
-  // 2. /api/frame POST persists to server /tmp so tablet polling receives it
+  // Live camera frame relay — JPEG fallback for when WebRTC is establishing/unavailable.
+  // Uses a persistent reusable canvas (created once, not per-frame) and only POSTs
+  // when the WebRTC peer is NOT in "connected" state — no wasted bandwidth when P2P works.
   useEffect(() => {
     if (!ready) return;
 
+    // Create canvas ONCE and reuse across all frames
     const canvas = document.createElement("canvas");
-    canvas.width = 360;  // 360x270: sharp, fast, & crisp on high-res tablet screens
-    canvas.height = 270;
+    canvas.width = 640;  // 640×480: sharp on tablets, ~25KB JPEG @ 0.72 quality
+    canvas.height = 480;
     const ctx = canvas.getContext("2d", { alpha: false });
 
-    let isPosting = false; // Lock to prevent HTTP request queueing
+    let active = true;
+    let isPosting = false; // prevent HTTP request queueing
 
     const interval = setInterval(async () => {
       if (!videoRef.current || !ctx || videoRef.current.readyState < 2) return;
-      // Skip snapshot POSTs once WebRTC direct P2P video stream is active
+      // Skip snapshot POSTs when WebRTC peer-to-peer video stream is active
       if (peerRef.current?.connectionState === "connected") return;
       if (isPosting) return;
 
       try {
         isPosting = true;
         ctx.save();
-        ctx.translate(360, 0);
+        ctx.translate(640, 0);
         ctx.scale(-1, 1);
-        ctx.drawImage(videoRef.current, 0, 0, 360, 270);
+        ctx.drawImage(videoRef.current, 0, 0, 640, 480);
         ctx.restore();
 
-        // 0.45 quality at 360x270: crisp image details (~14KB)
-        const frameData = canvas.toDataURL("image/jpeg", 0.45);
+        // 0.72 quality at 640×480: crisp image details (~25KB)
+        const frameData = canvas.toDataURL("image/jpeg", 0.72);
 
-        // 1. PeerJS P2P direct DataChannel transmission (10ms latency)
+        // 1. P2P DataChannel — instant delivery (<1ms on LAN)
         sendPusherEvent({
           data: {
             channel: channelName,
@@ -580,7 +628,7 @@ function CameraScreen({
           },
         }).catch(() => {});
 
-        // 2. HTTP POST to /api/frame (persists to /tmp for Vercel cross-lambda polling)
+        // 2. HTTP POST to /api/frame (persists for Vercel cross-lambda polling)
         await fetch(`/api/frame?channel=${encodeURIComponent(channelName)}`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -590,9 +638,12 @@ function CameraScreen({
       } finally {
         isPosting = false;
       }
-    }, 160); // 160ms (~6 fps) keeps live preview smooth and fast
+    }, 150); // 150ms ≈ 6-7 fps fallback — enough for preview without flooding server
 
-    return () => clearInterval(interval);
+    return () => {
+      active = false;
+      clearInterval(interval);
+    };
   }, [ready, channelName]);
 
   useEffect(() => {
@@ -615,9 +666,8 @@ function CameraScreen({
 
         if (!stream) {
           const videoConstraints: MediaTrackConstraints = {
-            width: { ideal: 3840 },
-            height: { ideal: 2160 },
-            frameRate: { ideal: 30 },
+            width: { ideal: 1920 },
+            height: { ideal: 1080 },
           };
 
           if (settings.cameraId) {
@@ -631,23 +681,18 @@ function CameraScreen({
               video: videoConstraints,
               audio: false,
             });
-            (window as any).__roviCameraStream = stream;
           } catch (deviceErr) {
-            if (settings.cameraId) {
-              console.warn("Selected camera failed, falling back to default camera:", deviceErr);
-              stream = await navigator.mediaDevices.getUserMedia({
-                video: { facingMode: "user", width: { ideal: 1920 }, height: { ideal: 1080 } },
-                audio: false,
-              });
-              (window as any).__roviCameraStream = stream;
-            } else {
+            console.warn("Camera constraint acquisition failed, trying simple video constraint:", deviceErr);
+            try {
+              stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+            } catch (fallbackErr: any) {
               throw deviceErr;
             }
           }
+          (window as any).__roviCameraStream = stream;
         }
 
         if (cancelled) {
-          stream.getTracks().forEach((t) => t.stop());
           return;
         }
 
@@ -746,7 +791,15 @@ function CameraScreen({
           if (playErr?.name === "AbortError") return;
         }
 
-        if (!cancelled) setReady(true);
+        if (!cancelled) {
+          setReady(true);
+          // Report actual camera resolution for diagnostics
+          const liveTrack = stream?.getVideoTracks()[0];
+          if (liveTrack) {
+            const s = liveTrack.getSettings();
+            console.log(`[CameraScreen] Live: ${s.width}×${s.height}@${s.frameRate}fps`);
+          }
+        }
       } catch (e: any) {
         if (!cancelled) setError(e?.message || "Camera permission denied");
       }
@@ -754,7 +807,9 @@ function CameraScreen({
 
     return () => {
       cancelled = true;
-      stream?.getTracks().forEach((t) => t.stop());
+      if (stream && stream !== (window as any).__roviCameraStream) {
+        stream.getTracks().forEach((t) => t.stop());
+      }
     };
   }, []);
 

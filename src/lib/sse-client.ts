@@ -45,6 +45,7 @@ export class ChannelBus {
 
 // Global PeerJS connection pool for direct P2P data transport
 const activeP2pConns: Set<any> = new Set();
+const p2pConnectedRef = { current: false }; // tracks whether any P2P conn is open
 
 export function sendP2pMessage(event: string, data: unknown): void {
   const msg = JSON.stringify({
@@ -128,6 +129,7 @@ export function useSSEChannel(channel: string): {
               conn.on("open", () => {
                 if (!active) return;
                 activeP2pConns.add(conn);
+                p2pConnectedRef.current = true;
                 setConnected(true);
                 console.log("[P2P] Tablet connected to kiosk");
               });
@@ -140,6 +142,7 @@ export function useSSEChannel(channel: string): {
               });
               conn.on("close", () => {
                 activeP2pConns.delete(conn);
+                p2pConnectedRef.current = activeP2pConns.size > 0;
                 // Auto-reconnect after 1s
                 if (active) {
                   console.log("[P2P] Tablet P2P closed, reconnecting in 1s...");
@@ -148,6 +151,7 @@ export function useSSEChannel(channel: string): {
               });
               conn.on("error", () => {
                 activeP2pConns.delete(conn);
+                p2pConnectedRef.current = activeP2pConns.size > 0;
                 if (active) p2pReconnectTimer = setTimeout(startP2P, 1000);
               });
             });
@@ -168,6 +172,7 @@ export function useSSEChannel(channel: string): {
               conn.on("open", () => {
                 if (!active) return;
                 activeP2pConns.add(conn);
+                p2pConnectedRef.current = true;
                 setConnected(true);
               });
               conn.on("data", (data: any) => {
@@ -177,8 +182,14 @@ export function useSSEChannel(channel: string): {
                   processEventRecord(msg);
                 } catch (e) {}
               });
-              conn.on("close", () => activeP2pConns.delete(conn));
-              conn.on("error", () => activeP2pConns.delete(conn));
+              conn.on("close", () => {
+                activeP2pConns.delete(conn);
+                p2pConnectedRef.current = activeP2pConns.size > 0;
+              });
+              conn.on("error", () => {
+                activeP2pConns.delete(conn);
+                p2pConnectedRef.current = activeP2pConns.size > 0;
+              });
             });
 
             peer.on("error", () => {
@@ -193,6 +204,7 @@ export function useSSEChannel(channel: string): {
                 conn.on("open", () => {
                   if (!active) return;
                   activeP2pConns.add(conn);
+                  p2pConnectedRef.current = true;
                   setConnected(true);
                 });
                 conn.on("data", (data: any) => {
@@ -202,7 +214,10 @@ export function useSSEChannel(channel: string): {
                     processEventRecord(msg);
                   } catch (e) {}
                 });
-                conn.on("close", () => activeP2pConns.delete(conn));
+                conn.on("close", () => {
+                  activeP2pConns.delete(conn);
+                  p2pConnectedRef.current = activeP2pConns.size > 0;
+                });
               });
             });
           }
@@ -252,10 +267,14 @@ export function useSSEChannel(channel: string): {
       }
     };
 
-    // ── Ultra-Fast HTTP Polling (150ms) for Vercel Serverless ───────────────
-    // This is the primary reliable fallback and guarantees <150ms tablet sync
+    // ── HTTP Polling Fallback (500ms) for Vercel Serverless ─────────────────
+    // This is the last-resort fallback. P2P DataChannel and SSE handle real-time
+    // delivery. We skip the HTTP poll entirely when P2P is connected to avoid
+    // competing with WebRTC ICE traffic and frame fetches.
     const pollTimer = setInterval(async () => {
       if (!active) return;
+      // Skip HTTP poll while P2P DataChannel is active — events already delivered
+      if (p2pConnectedRef.current) return;
       try {
         const res = (await fetchChannelEvents({
           data: { channel, since: lastTimestampRef.current },
@@ -271,7 +290,7 @@ export function useSSEChannel(channel: string): {
       } catch {
         // Ignore polling glitches
       }
-    }, 150);
+    }, 500);
 
     return () => {
       active = false;
@@ -279,6 +298,7 @@ export function useSSEChannel(channel: string): {
       clearInterval(pollTimer);
       if (p2pReconnectTimer) clearTimeout(p2pReconnectTimer);
       activeP2pConns.clear();
+      p2pConnectedRef.current = false;
       if (peerInstance) {
         try { peerInstance.destroy(); } catch (e) {}
       }

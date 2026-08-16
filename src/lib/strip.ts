@@ -182,6 +182,7 @@ export async function buildStrip(
       if (settings.logoDataUrl) {
         try {
           const logo = await loadImg(settings.logoDataUrl);
+          if (!logo) throw new Error("logo null");
           const lh = 80;
           const lw = (logo.width / logo.height) * lh;
           ctx.drawImage(logo, 200 - lw / 2, footerY + (footerH - lh) / 2, lw, lh);
@@ -223,6 +224,7 @@ export async function buildStrip(
       if (settings.logoDataUrl) {
         try {
           const logo = await loadImg(settings.logoDataUrl);
+          if (!logo) throw new Error("logo null");
           const lh = 80;
           const lw = (logo.width / logo.height) * lh;
           ctx.drawImage(logo, 200 - lw / 2, footerY + (footerH - lh) / 2 + 2, lw, lh);
@@ -298,6 +300,7 @@ export async function buildStrip(
       if (settings.logoDataUrl) {
         try {
           const logo = await loadImg(settings.logoDataUrl);
+          if (!logo) throw new Error("logo null");
           const lh = 50;
           const lw = (logo.width / logo.height) * lh;
           ctx.drawImage(logo, cx - lw / 2, footerY + 12, lw, lh);
@@ -334,6 +337,7 @@ export async function buildStrip(
       if (settings.logoDataUrl) {
         try {
           const logo = await loadImg(settings.logoDataUrl);
+          if (!logo) throw new Error("logo null");
           const lh = 70;
           const lw = (logo.width / logo.height) * lh;
           ctx.drawImage(logo, (STRIP_W - lw) / 2, footerY + 12, lw, lh);

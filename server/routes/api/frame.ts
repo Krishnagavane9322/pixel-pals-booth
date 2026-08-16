@@ -65,7 +65,7 @@ export default defineEventHandler(async (event) => {
       }
     } catch (e) {}
 
-    return { frame: null };
+    return { frame: null, ts: 0 };
   }
 
   return { success: false, error: "Method not allowed" };

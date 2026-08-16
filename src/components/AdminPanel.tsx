@@ -37,10 +37,11 @@ const SHUTTER_SPEEDS = [
 const ISO_VALUES = [100, 200, 400, 800, 1600, 3200, 6400];
 
 const getClosestShutterIndex = (val: number) => {
+  const safeVal = typeof val === "number" && !isNaN(val) ? val : 100;
   let closestIdx = 0;
   let minDiff = Infinity;
   SHUTTER_SPEEDS.forEach((item, idx) => {
-    const diff = Math.abs(item.value - val);
+    const diff = Math.abs(item.value - safeVal);
     if (diff < minDiff) {
       minDiff = diff;
       closestIdx = idx;
@@ -50,10 +51,11 @@ const getClosestShutterIndex = (val: number) => {
 };
 
 const getClosestIsoIndex = (val: number) => {
+  const safeVal = typeof val === "number" && !isNaN(val) ? val : 400;
   let closestIdx = 0;
   let minDiff = Infinity;
   ISO_VALUES.forEach((item, idx) => {
-    const diff = Math.abs(item - val);
+    const diff = Math.abs(item - safeVal);
     if (diff < minDiff) {
       minDiff = diff;
       closestIdx = idx;
@@ -222,8 +224,8 @@ export function AdminPanel({
                     min={-3.0}
                     max={3.0}
                     step={0.1}
-                    value={s.exposureCompensation}
-                    displayValue={(s.exposureCompensation > 0 ? "+" : "") + s.exposureCompensation.toFixed(1)}
+                    value={s.exposureCompensation ?? 0}
+                    displayValue={(((s.exposureCompensation ?? 0) > 0 ? "+" : "") + (s.exposureCompensation ?? 0).toFixed(1))}
                     onChange={(v) => update({ exposureCompensation: v })}
                   />
                 ) : (
@@ -233,18 +235,18 @@ export function AdminPanel({
                       min={0}
                       max={SHUTTER_SPEEDS.length - 1}
                       step={1}
-                      value={getClosestShutterIndex(s.exposureTime)}
-                      displayValue={SHUTTER_SPEEDS[getClosestShutterIndex(s.exposureTime)].label}
-                      onChange={(idx) => update({ exposureTime: SHUTTER_SPEEDS[idx].value })}
+                      value={getClosestShutterIndex(s.exposureTime ?? 100)}
+                      displayValue={SHUTTER_SPEEDS[getClosestShutterIndex(s.exposureTime ?? 100)]?.label || "1/100s"}
+                      onChange={(idx) => update({ exposureTime: SHUTTER_SPEEDS[idx]?.value ?? 100 })}
                     />
                     <InputSlider
                       label="ISO"
                       min={0}
                       max={ISO_VALUES.length - 1}
                       step={1}
-                      value={getClosestIsoIndex(s.iso)}
-                      displayValue={ISO_VALUES[getClosestIsoIndex(s.iso)]}
-                      onChange={(idx) => update({ iso: ISO_VALUES[idx] })}
+                      value={getClosestIsoIndex(s.iso ?? 400)}
+                      displayValue={ISO_VALUES[getClosestIsoIndex(s.iso ?? 400)] ?? 400}
+                      onChange={(idx) => update({ iso: ISO_VALUES[idx] ?? 400 })}
                     />
                   </div>
                 )}
@@ -265,8 +267,8 @@ export function AdminPanel({
                       min={2000}
                       max={8000}
                       step={50}
-                      value={s.colorTemperature}
-                      displayValue={`${s.colorTemperature}K`}
+                      value={s.colorTemperature ?? 5000}
+                      displayValue={`${s.colorTemperature ?? 5000}K`}
                       onChange={(v) => update({ colorTemperature: v })}
                     />
                     <InputSlider
@@ -274,8 +276,8 @@ export function AdminPanel({
                       min={-50}
                       max={50}
                       step={1}
-                      value={s.tint}
-                      displayValue={(s.tint > 0 ? "+" : "") + s.tint}
+                      value={s.tint ?? 0}
+                      displayValue={(((s.tint ?? 0) > 0 ? "+" : "") + (s.tint ?? 0))}
                       onChange={(v) => update({ tint: v })}
                     />
                   </div>
@@ -286,12 +288,12 @@ export function AdminPanel({
               <div className="text-xs text-amber-500/90 leading-normal border border-amber-500/20 rounded-xl p-3 bg-amber-500/5">
                 ℹ️ <strong>Aperture & Lens Note:</strong> Physical camera settings like Aperture can only be adjusted directly on your camera body dial (Nikon D5600) or lens ring.
               </div>
-              <Field label={`Countdown Time: ${s.countdownTime}s`}>
-                <input type="range" min={1} max={10} value={s.countdownTime}
+              <Field label={`Countdown Time: ${s.countdownTime ?? 3}s`}>
+                <input type="range" min={1} max={10} value={s.countdownTime ?? 3}
                   onChange={(e) => update({ countdownTime: +e.target.value })} className="w-full" />
               </Field>
-              <Field label={`Photo Gap: ${s.photoGap}s`}>
-                <input type="range" min={1} max={10} value={s.photoGap}
+              <Field label={`Photo Gap: ${s.photoGap ?? 3}s`}>
+                <input type="range" min={1} max={10} value={s.photoGap ?? 3}
                   onChange={(e) => update({ photoGap: +e.target.value })} className="w-full" />
               </Field>
               <InputSlider
