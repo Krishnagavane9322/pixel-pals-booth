@@ -838,18 +838,14 @@ function CameraScreen({
         setShotIdx(i);
 
         // 0. Trigger hardware camera auto-focus re-metering at start of countdown
-        // so the lens motor actively tracks and focuses on the subject at their current distance (near or far)
+        // Applies both top-level and advanced constraints to ensure compatibility with all camera drivers
         const activeTrack = streamRef.current?.getVideoTracks()[0];
         if (activeTrack && typeof (activeTrack as any).applyConstraints === "function") {
           try {
             const caps = (typeof (activeTrack as any).getCapabilities === "function" ? (activeTrack as any).getCapabilities() : {}) as any;
-            if (caps.focusMode && Array.isArray(caps.focusMode)) {
-              if (caps.focusMode.includes("continuous")) {
-                (activeTrack as any).applyConstraints({ advanced: [{ focusMode: "continuous" }] }).catch(() => {});
-              } else if (caps.focusMode.includes("single-shot")) {
-                (activeTrack as any).applyConstraints({ advanced: [{ focusMode: "manual" }] }).catch(() => {});
-                (activeTrack as any).applyConstraints({ advanced: [{ focusMode: "single-shot" }] }).catch(() => {});
-              }
+            if (caps.focusMode) {
+              (activeTrack as any).applyConstraints({ focusMode: "continuous" } as any).catch(() => {});
+              (activeTrack as any).applyConstraints({ advanced: [{ focusMode: "continuous" }] }).catch(() => {});
             }
           } catch (e) {}
         }
@@ -867,6 +863,7 @@ function CameraScreen({
             if (caps.fillLightMode) adv.fillLightMode = "flash";
 
             if (caps.focusMode) {
+              (activeTrack as any).applyConstraints({ focusMode: "continuous" } as any).catch(() => {});
               if (caps.focusMode.includes("single-shot")) adv.focusMode = "single-shot";
               else if (caps.focusMode.includes("continuous")) adv.focusMode = "continuous";
             }
@@ -886,8 +883,8 @@ function CameraScreen({
           },
         }).catch(() => {});
 
-        // 3. Wait 250ms for camera lens auto-focus motor to lock and sensor to adjust to flash
-        await wait(250);
+        // 3. Wait 400ms for camera lens auto-focus motor to lock on subject distance and sensor to settle
+        await wait(400);
         if (cancelled || !videoRef.current) return;
 
         // 4. Capture photo (waitForFrames ensures sensor settled after flash)

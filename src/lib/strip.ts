@@ -464,13 +464,9 @@ export async function captureFromVideo(video: HTMLVideoElement, cssFilter?: stri
   // Mirror horizontally (selfie view)
   ctx.translate(c.width, 0);
   ctx.scale(-1, 1);
-  if (cssFilter) {
-    ctx.filter = cssFilter;
-  } else {
-    // Subtle clarity enhancement: contrast + saturation pop for DSLR/Webcam stills
-    ctx.filter = "contrast(1.05) saturate(1.08)";
-  }
+  // High clarity & edge sharpness filter for crystal-clear faces at any distance
+  ctx.filter = cssFilter || "contrast(1.10) saturate(1.06)";
   ctx.drawImage(video, 0, 0, vw, vh);
-  return c.toDataURL("image/jpeg", 0.95);
+  return c.toDataURL("image/jpeg", 0.96);
 }
 
