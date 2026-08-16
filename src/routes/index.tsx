@@ -837,42 +837,11 @@ function CameraScreen({
         if (cancelled) return;
         setShotIdx(i);
 
-        // 0. Trigger hardware camera auto-focus re-metering at start of countdown
-        // Applies both top-level and advanced constraints to ensure compatibility with all camera drivers
-        const activeTrack = streamRef.current?.getVideoTracks()[0];
-        if (activeTrack && typeof (activeTrack as any).applyConstraints === "function") {
-          try {
-            const caps = (typeof (activeTrack as any).getCapabilities === "function" ? (activeTrack as any).getCapabilities() : {}) as any;
-            if (caps.focusMode) {
-              (activeTrack as any).applyConstraints({ focusMode: "continuous" } as any).catch(() => {});
-              (activeTrack as any).applyConstraints({ advanced: [{ focusMode: "continuous" }] }).catch(() => {});
-            }
-          } catch (e) {}
-        }
-
         await runCountdown(i === 0 ? settings.countdownTime : settings.photoGap);
         if (cancelled || !videoRef.current) return;
 
-        // 1. Activate flash screen overlay + Hardware Camera Torch & Focus Lock
+        // 1. Activate flash screen overlay
         setFlash(true);
-        try {
-          if (activeTrack && typeof (activeTrack as any).applyConstraints === "function") {
-            const caps = (typeof (activeTrack as any).getCapabilities === "function" ? (activeTrack as any).getCapabilities() : {}) as any;
-            const adv: any = {};
-            if (caps.torch) adv.torch = true;
-            if (caps.fillLightMode) adv.fillLightMode = "flash";
-
-            if (caps.focusMode) {
-              (activeTrack as any).applyConstraints({ focusMode: "continuous" } as any).catch(() => {});
-              if (caps.focusMode.includes("single-shot")) adv.focusMode = "single-shot";
-              else if (caps.focusMode.includes("continuous")) adv.focusMode = "continuous";
-            }
-
-            if (Object.keys(adv).length > 0) {
-              await (activeTrack as any).applyConstraints({ advanced: [adv] }).catch(() => {});
-            }
-          }
-        } catch (e) {}
 
         // 2. Notify tablet to flash simultaneously
         sendPusherEvent({
@@ -883,29 +852,18 @@ function CameraScreen({
           },
         }).catch(() => {});
 
-        // 3. Wait 400ms for camera lens auto-focus motor to lock on subject distance and sensor to settle
-        await wait(400);
+        // 3. Wait 120ms for flash overlay settling
+        await wait(120);
         if (cancelled || !videoRef.current) return;
 
-        // 4. Capture photo (waitForFrames ensures sensor settled after flash)
+        // 4. Capture photo from video element
         const img = await captureFromVideo(videoRef.current, cssFilter);
         photosRef.current.push(img);
         playShutterSound();
 
         // 5. Turn off flash quickly
-        await wait(80);
+        await wait(60);
         setFlash(false);
-        try {
-          if (activeTrack && typeof (activeTrack as any).applyConstraints === "function") {
-            const caps = (typeof (activeTrack as any).getCapabilities === "function" ? (activeTrack as any).getCapabilities() : {}) as any;
-            if (caps.torch || caps.fillLightMode) {
-              const adv: any = {};
-              if (caps.torch) adv.torch = false;
-              if (caps.fillLightMode) adv.fillLightMode = "off";
-              (activeTrack as any).applyConstraints({ advanced: [adv] }).catch(() => {});
-            }
-          }
-        } catch (e) {}
 
         await wait(200);
       }
