@@ -836,27 +836,43 @@ function CameraScreen({
       for (let i = 0; i < numShots; i++) {
         if (cancelled) return;
         setShotIdx(i);
+
+        // 0. Trigger hardware camera auto-focus re-metering at start of countdown
+        // so the lens motor actively tracks and focuses on the subject at their current distance (near or far)
+        const activeTrack = streamRef.current?.getVideoTracks()[0];
+        if (activeTrack && typeof (activeTrack as any).applyConstraints === "function") {
+          try {
+            const caps = (typeof (activeTrack as any).getCapabilities === "function" ? (activeTrack as any).getCapabilities() : {}) as any;
+            if (caps.focusMode && Array.isArray(caps.focusMode)) {
+              if (caps.focusMode.includes("continuous")) {
+                (activeTrack as any).applyConstraints({ advanced: [{ focusMode: "continuous" }] }).catch(() => {});
+              } else if (caps.focusMode.includes("single-shot")) {
+                (activeTrack as any).applyConstraints({ advanced: [{ focusMode: "manual" }] }).catch(() => {});
+                (activeTrack as any).applyConstraints({ advanced: [{ focusMode: "single-shot" }] }).catch(() => {});
+              }
+            }
+          } catch (e) {}
+        }
+
         await runCountdown(i === 0 ? settings.countdownTime : settings.photoGap);
         if (cancelled || !videoRef.current) return;
 
-        // 1. Activate flash screen overlay + Hardware Camera Torch & Auto-Focus Lock
+        // 1. Activate flash screen overlay + Hardware Camera Torch & Focus Lock
         setFlash(true);
         try {
-          const track = streamRef.current?.getVideoTracks()[0];
-          if (track && typeof (track as any).applyConstraints === "function") {
-            const caps = (typeof (track as any).getCapabilities === "function" ? (track as any).getCapabilities() : {}) as any;
+          if (activeTrack && typeof (activeTrack as any).applyConstraints === "function") {
+            const caps = (typeof (activeTrack as any).getCapabilities === "function" ? (activeTrack as any).getCapabilities() : {}) as any;
             const adv: any = {};
             if (caps.torch) adv.torch = true;
             if (caps.fillLightMode) adv.fillLightMode = "flash";
 
-            // Force auto-focus metering before shutter release
             if (caps.focusMode) {
               if (caps.focusMode.includes("single-shot")) adv.focusMode = "single-shot";
               else if (caps.focusMode.includes("continuous")) adv.focusMode = "continuous";
             }
 
             if (Object.keys(adv).length > 0) {
-              await (track as any).applyConstraints({ advanced: [adv] }).catch(() => {});
+              await (activeTrack as any).applyConstraints({ advanced: [adv] }).catch(() => {});
             }
           }
         } catch (e) {}
@@ -870,8 +886,8 @@ function CameraScreen({
           },
         }).catch(() => {});
 
-        // 3. Wait 200ms for camera lens auto-focus motor to lock and sensor to adjust to flash
-        await wait(200);
+        // 3. Wait 250ms for camera lens auto-focus motor to lock and sensor to adjust to flash
+        await wait(250);
         if (cancelled || !videoRef.current) return;
 
         // 4. Capture photo (waitForFrames ensures sensor settled after flash)
@@ -883,14 +899,13 @@ function CameraScreen({
         await wait(80);
         setFlash(false);
         try {
-          const track = streamRef.current?.getVideoTracks()[0];
-          if (track && typeof (track as any).applyConstraints === "function") {
-            const caps = (typeof (track as any).getCapabilities === "function" ? (track as any).getCapabilities() : {}) as any;
+          if (activeTrack && typeof (activeTrack as any).applyConstraints === "function") {
+            const caps = (typeof (activeTrack as any).getCapabilities === "function" ? (activeTrack as any).getCapabilities() : {}) as any;
             if (caps.torch || caps.fillLightMode) {
               const adv: any = {};
               if (caps.torch) adv.torch = false;
               if (caps.fillLightMode) adv.fillLightMode = "off";
-              (track as any).applyConstraints({ advanced: [adv] }).catch(() => {});
+              (activeTrack as any).applyConstraints({ advanced: [adv] }).catch(() => {});
             }
           }
         } catch (e) {}
