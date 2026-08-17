@@ -562,144 +562,22 @@ function TabletRemote() {
     });
   };
 
-  // ── PRINT: exact same logic as the laptop's handlePrint ────────────────────
+  // ── PRINT: triggers printer on laptop kiosk ────────────────────────────────
   const handlePrint = async () => {
+    // 1. Trigger print on laptop kiosk (where DNP DS-RX1 printer is connected)
     triggerEvent("TRIGGER_PRINT", { id: currentStripId });
 
-    // Also post to session API so Laptop receives print trigger via polling even if SSE is isolated on Vercel
+    // 2. Post to session API so laptop polling detects print trigger
     fetch(`/api/session?channel=${encodeURIComponent(channel)}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action: "print" }),
     }).catch(() => {});
 
-    if (!stripUrl) return;
-
-    // Always convert to base64 first to avoid CORS tainted canvas errors
-    let dataUrl: string;
-    try {
-      dataUrl = await toDataUrl(stripUrl);
-    } catch (err) {
-      console.error("[Tablet] Failed to fetch strip for print:", err);
-      return;
-    }
-
-    let printDataUrl = dataUrl;
-
-    if (printLayout !== "4x6") {
-      // Create a 6x4 inch canvas at 300 DPI (1800x1200 px) for landscape printing
-      const img = new Image();
-      const loadPromise = new Promise<void>((resolve) => { img.onload = () => resolve(); });
-      img.src = dataUrl;
-      await loadPromise;
-
-      const canvas = document.createElement("canvas");
-      canvas.width = 1800;
-      canvas.height = 1200;
-      const ctx = canvas.getContext("2d")!;
-
-      // Fill background with white
-      ctx.fillStyle = "#ffffff";
-      ctx.fillRect(0, 0, 1800, 1200);
-
-      // First copy (top half) — rotated 90° counter-clockwise
-      ctx.save();
-      ctx.translate(0, 600);
-      ctx.rotate(-Math.PI / 2);
-      ctx.drawImage(img, 0, 0, img.width, img.height);
-      ctx.restore();
-
-      // Second copy (bottom half) — rotated 90° counter-clockwise
-      ctx.save();
-      ctx.translate(0, 1200);
-      ctx.rotate(-Math.PI / 2);
-      ctx.drawImage(img, 0, 0, img.width, img.height);
-      ctx.restore();
-
-      // Dashed cut line in the middle
-      ctx.setLineDash([16, 12]);
-      ctx.strokeStyle = "rgba(180, 180, 180, 0.8)";
-      ctx.lineWidth = 4;
-      ctx.beginPath();
-      ctx.moveTo(0, 600);
-      ctx.lineTo(1800, 600);
-      ctx.stroke();
-
-      printDataUrl = canvas.toDataURL("image/jpeg", 0.94);
-    }
-
-    // 1. Trigger print on the laptop kiosk main system (connected printer)
-    triggerEvent("TRIGGER_PRINT", { id: currentStripId });
-
-    // 2. Direct background printing via hidden iframe — no popups or extra window interface!
-    const existing = document.getElementById("rovi-direct-print-frame");
-    if (existing) {
-      try { existing.remove(); } catch {}
-    }
-
-    const iframe = document.createElement("iframe");
-    iframe.id = "rovi-direct-print-frame";
-    iframe.style.position = "fixed";
-    iframe.style.top = "-9999px";
-    iframe.style.left = "-9999px";
-    iframe.style.width = "1px";
-    iframe.style.height = "1px";
-    iframe.style.border = "none";
-    iframe.style.opacity = "0";
-    iframe.style.pointerEvents = "none";
-
-    document.body.appendChild(iframe);
-
-    const doc = iframe.contentWindow?.document;
-    if (doc) {
-      doc.open();
-      doc.write(`<!DOCTYPE html><html><head><title>ROVI Photo Print</title>
-<style>
-  @page { margin: 0; size: auto; }
-  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-  html, body {
-    width: 100%;
-    height: 100%;
-    margin: 0;
-    padding: 0;
-    background: #ffffff;
-    overflow: hidden;
-    -webkit-print-color-adjust: exact;
-    print-color-adjust: exact;
-  }
-  img {
-    display: block;
-    width: 100vw;
-    height: 100vh;
-    object-fit: fill;
-    page-break-after: avoid;
-    break-after: avoid;
-  }
-</style></head>
-<body>
-  <img id="p" src="${printDataUrl}" />
-  <script>
-    document.getElementById('p').onload = function() {
-      setTimeout(function() {
-        try {
-          window.focus();
-          window.print();
-        } catch(e) {}
-      }, 200);
-    };
-  </script>
-</body></html>`);
-      doc.close();
-
-      setTimeout(() => {
-        try { iframe.remove(); } catch {}
-      }, 60000);
-    }
-
-    // Auto-return tablet to Welcome screen 4 seconds after printing so booth resets for next guest
+    // 3. Auto-return tablet to Welcome screen after 3s (no local print dialog on remote tablet)
     setTimeout(() => {
       handleGoHome();
-    }, 4000);
+    }, 3000);
   };
 
   const handleRetake = () => {

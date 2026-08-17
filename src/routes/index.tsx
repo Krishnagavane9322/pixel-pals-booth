@@ -1210,8 +1210,15 @@ function Preview({
     }
     logPrint(strip.id);
 
-    // Auto-return to Welcome screen 4 seconds after printing so the booth resets for the next guest
+    // Return to home screen immediately when print dialog finishes/closes, or via 4s fallback timer
+    const handleAfterPrint = () => {
+      window.removeEventListener("afterprint", handleAfterPrint);
+      onHome();
+    };
+    window.addEventListener("afterprint", handleAfterPrint);
+
     setTimeout(() => {
+      window.removeEventListener("afterprint", handleAfterPrint);
       onHome();
     }, 4000);
   };
