@@ -76,16 +76,56 @@ function Kiosk() {
 
   const start = () => { setPhotos([]); setStrip(null); setScreen("camera"); };
 
+  const lastHandledActionTsRef = useRef<number>(0);
+
   // ── Persist kiosk state to /api/session so tablet can poll it ───────────────
   // This is the reliable fallback when SSE events are lost (Vercel Serverless
   // cold-start isolation). The tablet polls /api/session every second.
-  const postSessionState = (screen: Screen, stripId: string | null) => {
+  const postSessionState = (screen: Screen, stripId: string | null, action?: string | null) => {
     fetch(`/api/session?channel=${encodeURIComponent(channel)}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ screen, stripId }),
+      body: JSON.stringify({ screen, stripId, action: action || null }),
     }).catch(() => {});
   };
+
+  // Poll /api/session on laptop so remote print and go-home actions from tablet
+  // execute reliably even if SSE messages are missed on Vercel Serverless.
+  useEffect(() => {
+    let active = true;
+    const poll = async () => {
+      if (!active) return;
+      try {
+        const res = await fetch(`/api/session?channel=${encodeURIComponent(channel)}`);
+        if (!res.ok || !active) return;
+        const data = await res.json();
+        if (!data.success || !active) return;
+
+        // 1. Handle remote action (e.g. print trigger from tablet)
+        if (data.action === "print" && data.actionTs && data.actionTs > lastHandledActionTsRef.current) {
+          lastHandledActionTsRef.current = data.actionTs;
+          if (printTriggerRef.current) {
+            printTriggerRef.current();
+          }
+        }
+
+        // 2. Handle remote screen reset (tablet went home)
+        if (data.screen === "welcome" && screen !== "welcome") {
+          stopSpeaking();
+          setPhotos([]);
+          setStrip(null);
+          setScreen("welcome");
+        }
+      } catch {}
+    };
+
+    const timer = setInterval(poll, 1000);
+    poll();
+    return () => {
+      active = false;
+      clearInterval(timer);
+    };
+  }, [channel, screen]);
 
   // Generate tablet QR code
   useEffect(() => {

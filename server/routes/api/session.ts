@@ -10,6 +10,8 @@ type SessionState = {
   channel: string;
   screen: "welcome" | "camera" | "processing" | "preview";
   stripId: string | null;
+  action?: "print" | "start" | "gohome" | null;
+  actionTs?: number;
   ts: number;
 };
 
@@ -51,10 +53,13 @@ export default defineEventHandler(async (event) => {
   if (method === "POST") {
     try {
       const body = (await readBody(event)) as Partial<SessionState>;
+      const existing = sessionStore.get(channel) || readSessionFromDisk(channel);
       const state: SessionState = {
         channel,
-        screen: body?.screen ?? "welcome",
-        stripId: body?.stripId ?? null,
+        screen: body?.screen ?? existing?.screen ?? "welcome",
+        stripId: body?.stripId !== undefined ? body.stripId : (existing?.stripId ?? null),
+        action: body?.action ?? null,
+        actionTs: body?.action ? Date.now() : (existing?.actionTs ?? 0),
         ts: Date.now(),
       };
 

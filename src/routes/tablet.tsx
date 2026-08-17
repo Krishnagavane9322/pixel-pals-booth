@@ -565,6 +565,14 @@ function TabletRemote() {
   // ── PRINT: exact same logic as the laptop's handlePrint ────────────────────
   const handlePrint = async () => {
     triggerEvent("TRIGGER_PRINT", { id: currentStripId });
+
+    // Also post to session API so Laptop receives print trigger via polling even if SSE is isolated on Vercel
+    fetch(`/api/session?channel=${encodeURIComponent(channel)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "print" }),
+    }).catch(() => {});
+
     if (!stripUrl) return;
 
     // Always convert to base64 first to avoid CORS tainted canvas errors
