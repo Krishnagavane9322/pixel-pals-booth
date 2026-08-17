@@ -141,9 +141,9 @@ function TabletRemote() {
         const remoteScreen = data.screen as TabletState | undefined;
         const remoteStripId = data.stripId ?? null;
 
-        // If kiosk has reset to welcome, sync tablet to welcome (only when in preview or processing)
+        // If kiosk is at welcome screen (or explicit gohome action), sync tablet to TOUCH TO START
         if (remoteScreen === "welcome" || data.action === "gohome") {
-          if (stateRef.current === "preview" || stateRef.current === "processing") {
+          if (stateRef.current !== "welcome") {
             setState("welcome");
             setStripUrl(null);
             setCurrentStripId(null);
@@ -285,6 +285,7 @@ function TabletRemote() {
     channelBus.bind("PHOTO_READY", handlePhotoReady);
     channelBus.bind("CAMERA_FRAME", handleCameraFrame);
     channelBus.bind("RESET", handleReset);
+    channelBus.bind("GO_HOME", handleReset);
     channelBus.bind("SETTINGS_UPDATE", handleSettingsUpdate);
 
     return () => {
@@ -292,6 +293,7 @@ function TabletRemote() {
       channelBus.unbind("PHOTO_READY", handlePhotoReady);
       channelBus.unbind("CAMERA_FRAME", handleCameraFrame);
       channelBus.unbind("RESET", handleReset);
+      channelBus.unbind("GO_HOME", handleReset);
       channelBus.unbind("SETTINGS_UPDATE", handleSettingsUpdate);
     };
   }, [channelBus]);
