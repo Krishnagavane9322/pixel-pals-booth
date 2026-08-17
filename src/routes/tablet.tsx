@@ -132,6 +132,8 @@ function TabletRemote() {
           success: boolean;
           screen?: string;
           stripId?: string | null;
+          action?: string | null;
+          actionTs?: number;
           ts?: number;
         };
 
