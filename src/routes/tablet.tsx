@@ -687,6 +687,11 @@ function TabletRemote() {
         try { iframe.remove(); } catch {}
       }, 60000);
     }
+
+    // Auto-return tablet to Welcome screen 4 seconds after printing so booth resets for next guest
+    setTimeout(() => {
+      handleGoHome();
+    }, 4000);
   };
 
   const handleRetake = () => {

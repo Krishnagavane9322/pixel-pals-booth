@@ -1022,10 +1022,20 @@ function Preview({
 }) {
   const [qr, setQr] = useState<string | null>(null);
   const [showQR, setShowQR] = useState(false);
+  const [isPrinting, setIsPrinting] = useState(false);
 
   useEffect(() => {
     speak("Looking great! If you want to print your photos, please click on the print button below.", settings.enableVoice !== false);
   }, [settings.enableVoice]);
+
+  // 60-second inactivity watchdog on Preview: auto-returns to Welcome screen if guest leaves
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      console.log("[Preview] Inactivity timeout (60s) — returning to Welcome screen");
+      onHome();
+    }, 60000);
+    return () => clearTimeout(timer);
+  }, [onHome]);
 
   useEffect(() => {
     printTriggerRef.current = handlePrint;
@@ -1043,6 +1053,10 @@ function Preview({
   };
 
   const handlePrint = async () => {
+    if (isPrinting) return;
+    setIsPrinting(true);
+    speak("Thank you! Printing your photo strip now.", settings.enableVoice !== false);
+
     let printDataUrl = strip.dataUrl;
 
     if (settings.printLayout !== "4x6") {
@@ -1155,6 +1169,11 @@ function Preview({
       }, 60000);
     }
     logPrint(strip.id);
+
+    // Auto-return to Welcome screen 4 seconds after printing so the booth resets for the next guest
+    setTimeout(() => {
+      onHome();
+    }, 4000);
   };
 
 
