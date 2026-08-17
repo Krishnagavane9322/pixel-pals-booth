@@ -139,9 +139,9 @@ function TabletRemote() {
         const remoteScreen = data.screen as TabletState | undefined;
         const remoteStripId = data.stripId ?? null;
 
-        // If kiosk has reset to welcome, sync tablet to welcome
-        if (remoteScreen === "welcome") {
-          if (stateRef.current !== "welcome") {
+        // If kiosk has reset to welcome, sync tablet to welcome (only when in preview or processing)
+        if (remoteScreen === "welcome" || data.action === "gohome") {
+          if (stateRef.current === "preview" || stateRef.current === "processing") {
             setState("welcome");
             setStripUrl(null);
             setCurrentStripId(null);
@@ -524,6 +524,11 @@ function TabletRemote() {
 
   const handleStart = () => {
     dismissedStripIdRef.current = null;
+    fetch(`/api/session?channel=${encodeURIComponent(channel)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ screen: "camera", stripId: null, action: "start" }),
+    }).catch(() => {});
     triggerEvent("START_CAPTURE");
     setState("camera");
   };
@@ -536,7 +541,7 @@ function TabletRemote() {
     fetch(`/api/session?channel=${encodeURIComponent(channel)}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ screen: "welcome", stripId: null }),
+      body: JSON.stringify({ screen: "welcome", stripId: null, action: "gohome" }),
     }).catch(() => {});
 
     triggerEvent("GO_HOME");

@@ -74,7 +74,12 @@ function Kiosk() {
     return () => window.removeEventListener("keydown", k);
   }, []);
 
-  const start = () => { setPhotos([]); setStrip(null); setScreen("camera"); };
+  const start = () => {
+    setPhotos([]);
+    setStrip(null);
+    setScreen("camera");
+    postSessionState("camera", null, "start");
+  };
 
   const lastHandledActionTsRef = useRef<number>(0);
 
@@ -90,7 +95,7 @@ function Kiosk() {
   };
 
   // Poll /api/session on laptop so remote print and go-home actions from tablet
-  // execute reliably even if SSE messages are missed on Vercel Serverless.
+  // execute reliably without interrupting active photo capture sessions.
   useEffect(() => {
     let active = true;
     const poll = async () => {
@@ -101,7 +106,7 @@ function Kiosk() {
         const data = await res.json();
         if (!data.success || !active) return;
 
-        // 1. Handle remote action (e.g. print trigger from tablet)
+        // 1. Handle remote action: print trigger from tablet
         if (data.action === "print" && data.actionTs && data.actionTs > lastHandledActionTsRef.current) {
           lastHandledActionTsRef.current = data.actionTs;
           if (printTriggerRef.current) {
@@ -109,12 +114,15 @@ function Kiosk() {
           }
         }
 
-        // 2. Handle remote screen reset (tablet went home)
-        if (data.screen === "welcome" && screen !== "welcome") {
-          stopSpeaking();
-          setPhotos([]);
-          setStrip(null);
-          setScreen("welcome");
+        // 2. Handle remote action: explicit go home from tablet
+        if (data.action === "gohome" && data.actionTs && data.actionTs > lastHandledActionTsRef.current) {
+          lastHandledActionTsRef.current = data.actionTs;
+          if (screen !== "welcome") {
+            stopSpeaking();
+            setPhotos([]);
+            setStrip(null);
+            setScreen("welcome");
+          }
         }
       } catch {}
     };
