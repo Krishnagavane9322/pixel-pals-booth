@@ -1090,15 +1090,37 @@ function Preview({
       printDataUrl = canvas.toDataURL("image/jpeg", 0.94);
     }
 
-    const popup = window.open("", "_blank", "width=720,height=480");
-    if (popup) {
-      popup.document.write(`<!DOCTYPE html><html><head><title>ROVI Photo Print</title>
+    // Direct background printing via hidden iframe — no popups or extra window interface!
+    const existing = document.getElementById("rovi-direct-print-frame");
+    if (existing) {
+      try { existing.remove(); } catch {}
+    }
+
+    const iframe = document.createElement("iframe");
+    iframe.id = "rovi-direct-print-frame";
+    iframe.style.position = "fixed";
+    iframe.style.top = "-9999px";
+    iframe.style.left = "-9999px";
+    iframe.style.width = "1px";
+    iframe.style.height = "1px";
+    iframe.style.border = "none";
+    iframe.style.opacity = "0";
+    iframe.style.pointerEvents = "none";
+
+    document.body.appendChild(iframe);
+
+    const doc = iframe.contentWindow?.document;
+    if (doc) {
+      doc.open();
+      doc.write(`<!DOCTYPE html><html><head><title>ROVI Photo Print</title>
 <style>
-  @page { margin: 0; }
+  @page { margin: 0; size: auto; }
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   html, body {
     width: 100%;
     height: 100%;
+    margin: 0;
+    padding: 0;
     background: #ffffff;
     overflow: hidden;
     -webkit-print-color-adjust: exact;
@@ -1115,20 +1137,22 @@ function Preview({
 </style></head>
 <body>
   <img id="p" src="${printDataUrl}" />
-  <script>document.getElementById('p').onload=function(){setTimeout(function(){window.focus();window.print();window.close();},400);};</script>
+  <script>
+    document.getElementById('p').onload = function() {
+      setTimeout(function() {
+        try {
+          window.focus();
+          window.print();
+        } catch(e) {}
+      }, 200);
+    };
+  </script>
 </body></html>`);
-      popup.document.close();
-    } else {
-      // Fallback: hidden overlay print
-      const overlay = document.createElement("div");
-      overlay.id = "rovi-print-overlay";
-      overlay.style.display = "none";
-      const printImg = document.createElement("img");
-      printImg.src = printDataUrl;
-      overlay.appendChild(printImg);
-      document.body.appendChild(overlay);
-      window.print();
-      document.body.removeChild(overlay);
+      doc.close();
+
+      setTimeout(() => {
+        try { iframe.remove(); } catch {}
+      }, 60000);
     }
     logPrint(strip.id);
   };

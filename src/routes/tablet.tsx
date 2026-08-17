@@ -623,16 +623,37 @@ function TabletRemote() {
     // 1. Trigger print on the laptop kiosk main system (connected printer)
     triggerEvent("TRIGGER_PRINT", { id: currentStripId });
 
-    // 2. Also handle tablet local print using a clean popup window (matching main system)
-    const popup = window.open("", "_blank", "width=720,height=480");
-    if (popup) {
-      popup.document.write(`<!DOCTYPE html><html><head><title>ROVI Photo Print</title>
+    // 2. Direct background printing via hidden iframe — no popups or extra window interface!
+    const existing = document.getElementById("rovi-direct-print-frame");
+    if (existing) {
+      try { existing.remove(); } catch {}
+    }
+
+    const iframe = document.createElement("iframe");
+    iframe.id = "rovi-direct-print-frame";
+    iframe.style.position = "fixed";
+    iframe.style.top = "-9999px";
+    iframe.style.left = "-9999px";
+    iframe.style.width = "1px";
+    iframe.style.height = "1px";
+    iframe.style.border = "none";
+    iframe.style.opacity = "0";
+    iframe.style.pointerEvents = "none";
+
+    document.body.appendChild(iframe);
+
+    const doc = iframe.contentWindow?.document;
+    if (doc) {
+      doc.open();
+      doc.write(`<!DOCTYPE html><html><head><title>ROVI Photo Print</title>
 <style>
-  @page { margin: 0; }
+  @page { margin: 0; size: auto; }
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   html, body {
     width: 100%;
     height: 100%;
+    margin: 0;
+    padding: 0;
     background: #ffffff;
     overflow: hidden;
     -webkit-print-color-adjust: exact;
@@ -649,31 +670,22 @@ function TabletRemote() {
 </style></head>
 <body>
   <img id="p" src="${printDataUrl}" />
-  <script>document.getElementById('p').onload=function(){setTimeout(function(){window.focus();window.print();window.close();},400);};</script>
+  <script>
+    document.getElementById('p').onload = function() {
+      setTimeout(function() {
+        try {
+          window.focus();
+          window.print();
+        } catch(e) {}
+      }, 200);
+    };
+  </script>
 </body></html>`);
-      popup.document.close();
-    } else {
-      // Fallback for mobile popups: create temporary iframe, print, and immediately destroy
-      const iframe = document.createElement("iframe");
-      iframe.style.position = "fixed";
-      iframe.style.right = "0";
-      iframe.style.bottom = "0";
-      iframe.style.width = "0";
-      iframe.style.height = "0";
-      iframe.style.border = "0";
-      document.body.appendChild(iframe);
+      doc.close();
 
-      const doc = iframe.contentWindow?.document;
-      if (doc) {
-        doc.open();
-        doc.write(`<!DOCTYPE html><html><head><style>@page{margin:0;}html,body{margin:0;padding:0;}img{width:100%;height:100%;}</style></head><body><img src="${printDataUrl}" /></body></html>`);
-        doc.close();
-        iframe.contentWindow?.focus();
-        setTimeout(() => {
-          iframe.contentWindow?.print();
-          setTimeout(() => document.body.removeChild(iframe), 1000);
-        }, 300);
-      }
+      setTimeout(() => {
+        try { iframe.remove(); } catch {}
+      }, 60000);
     }
   };
 
