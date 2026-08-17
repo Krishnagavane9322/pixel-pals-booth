@@ -562,22 +562,135 @@ function TabletRemote() {
     });
   };
 
-  // ── PRINT: triggers printer on laptop kiosk ────────────────────────────────
+  // ── PRINT: opens print dialog on tablet and resets laptop to welcome screen upon print ────
   const handlePrint = async () => {
-    // 1. Trigger print on laptop kiosk (where DNP DS-RX1 printer is connected)
-    triggerEvent("TRIGGER_PRINT", { id: currentStripId });
+    if (!stripUrl) return;
 
-    // 2. Post to session API so laptop polling detects print trigger
-    fetch(`/api/session?channel=${encodeURIComponent(channel)}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "print" }),
-    }).catch(() => {});
+    // Always convert to base64 first to avoid CORS errors
+    let dataUrl: string;
+    try {
+      dataUrl = await toDataUrl(stripUrl);
+    } catch (err) {
+      console.error("[Tablet] Failed to fetch strip for print:", err);
+      return;
+    }
 
-    // 3. Auto-return tablet to Welcome screen after 3s (no local print dialog on remote tablet)
-    setTimeout(() => {
+    let printDataUrl = dataUrl;
+
+    if (printLayout !== "4x6") {
+      // Create a 6x4 inch canvas at 300 DPI (1800x1200 px) for landscape printing
+      const img = new Image();
+      const loadPromise = new Promise<void>((resolve) => { img.onload = () => resolve(); });
+      img.src = dataUrl;
+      await loadPromise;
+
+      const canvas = document.createElement("canvas");
+      canvas.width = 1800;
+      canvas.height = 1200;
+      const ctx = canvas.getContext("2d")!;
+
+      // Fill background with white
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, 1800, 1200);
+
+      // First copy (top half) — rotated 90° counter-clockwise
+      ctx.save();
+      ctx.translate(0, 600);
+      ctx.rotate(-Math.PI / 2);
+      ctx.drawImage(img, 0, 0, img.width, img.height);
+      ctx.restore();
+
+      // Second copy (bottom half) — rotated 90° counter-clockwise
+      ctx.save();
+      ctx.translate(0, 1200);
+      ctx.rotate(-Math.PI / 2);
+      ctx.drawImage(img, 0, 0, img.width, img.height);
+      ctx.restore();
+
+      // Dashed cut line in the middle
+      ctx.setLineDash([16, 12]);
+      ctx.strokeStyle = "rgba(180, 180, 180, 0.8)";
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.moveTo(0, 600);
+      ctx.lineTo(1800, 600);
+      ctx.stroke();
+
+      printDataUrl = canvas.toDataURL("image/jpeg", 0.94);
+    }
+
+    // Clean up previous print iframe
+    const existing = document.getElementById("rovi-tablet-print-frame");
+    if (existing) {
+      try { existing.remove(); } catch {}
+    }
+
+    const iframe = document.createElement("iframe");
+    iframe.id = "rovi-tablet-print-frame";
+    iframe.style.position = "fixed";
+    iframe.style.top = "-9999px";
+    iframe.style.left = "-9999px";
+    iframe.style.width = "1px";
+    iframe.style.height = "1px";
+    iframe.style.border = "none";
+    iframe.style.opacity = "0";
+    iframe.style.pointerEvents = "none";
+
+    document.body.appendChild(iframe);
+
+    // Listen for afterprint on tablet so when user finishes printing on tablet,
+    // both tablet and laptop return to TOUCH TO START together!
+    const handleAfterPrint = () => {
+      window.removeEventListener("afterprint", handleAfterPrint);
       handleGoHome();
-    }, 3000);
+    };
+    window.addEventListener("afterprint", handleAfterPrint);
+
+    const doc = iframe.contentWindow?.document;
+    if (doc) {
+      doc.open();
+      doc.write(`<!DOCTYPE html><html><head><title>ROVI Photo Print</title>
+<style>
+  @page { margin: 0; size: auto; }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    background: #ffffff;
+    overflow: hidden;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  img {
+    display: block;
+    width: 100vw;
+    height: 100vh;
+    object-fit: fill;
+    page-break-after: avoid;
+    break-after: avoid;
+  }
+</style></head>
+<body>
+  <img id="p" src="${printDataUrl}" />
+  <script>
+    document.getElementById('p').onload = function() {
+      setTimeout(function() {
+        try {
+          window.focus();
+          window.print();
+        } catch(e) {}
+      }, 200);
+    };
+  </script>
+</body></html>`);
+      doc.close();
+
+      setTimeout(() => {
+        try { iframe.remove(); } catch {}
+      }, 60000);
+    }
   };
 
   const handleRetake = () => {
