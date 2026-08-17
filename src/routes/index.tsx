@@ -507,6 +507,19 @@ function CameraScreen({
       }).catch(() => {});
     };
 
+    const processedSignalIdsRef = new Set<string>();
+
+    const isDuplicateSignal = (id?: string, type?: string, data?: any) => {
+      const sigKey = id || `${type}-${JSON.stringify(data)}`;
+      if (processedSignalIdsRef.has(sigKey)) return true;
+      processedSignalIdsRef.add(sigKey);
+      if (processedSignalIdsRef.size > 200) {
+        const first = processedSignalIdsRef.values().next().value;
+        if (first) processedSignalIdsRef.delete(first);
+      }
+      return false;
+    };
+
     // Core function: create RTCPeerConnection, add camera tracks, send SDP offer
     const initiateStream = async () => {
       if (!active) return;
@@ -541,7 +554,6 @@ function CameraScreen({
         console.log("[WebRTC] SDP offer sent to tablet via /api/signal & P2P");
 
         // Configure video sender for high-quality encoding after offer is created
-        // This must be done after setLocalDescription but BEFORE the answer arrives
         for (const sender of pc.getSenders()) {
           if (sender.track?.kind !== "video") continue;
           try {
@@ -555,7 +567,6 @@ function CameraScreen({
             await sender.setParameters(params);
             console.log("[WebRTC] Video sender encoding configured: 2.5Mbps@30fps");
           } catch (encErr) {
-            // setParameters() is best-effort — some browsers reject it before negotiation
             console.warn("[WebRTC] Could not set sender parameters (will retry after answer):", encErr);
           }
         }
@@ -566,12 +577,19 @@ function CameraScreen({
 
     initiateStream();
 
-    const handleViewerReady = () => {
-      console.log("[WebRTC] VIEWER_READY received — re-initiating stream");
+    const handleViewerReady = (id?: string) => {
+      if (id && isDuplicateSignal(id, "VIEWER_READY")) return;
+      const pc = peerRef.current;
+      if (pc && (pc.connectionState === "connected" || pc.connectionState === "connecting" || pc.iceConnectionState === "connected" || pc.iceConnectionState === "checking")) {
+        console.log("[WebRTC] VIEWER_READY received, but connection is already active/connecting — skipping re-init");
+        return;
+      }
+      console.log("[WebRTC] VIEWER_READY received — initiating stream");
       initiateStream();
     };
 
-    const handleSdpAnswer = async (msg: { sdp: { type: RTCSdpType; sdp: string } }) => {
+    const handleSdpAnswer = async (msg: { sdp: { type: RTCSdpType; sdp: string } }, id?: string) => {
+      if (id && isDuplicateSignal(id, "SDP_ANSWER", msg)) return;
       const pc = peerRef.current;
       if (!pc || pc.signalingState === "stable") return;
       try {
@@ -582,7 +600,6 @@ function CameraScreen({
         pendingCandidatesRef.current = [];
         console.log("[WebRTC] SDP answer set — connection should stream now");
 
-        // Re-apply encoding params after answer is set (full negotiation complete)
         for (const sender of pc.getSenders()) {
           if (sender.track?.kind !== "video") continue;
           try {
@@ -600,7 +617,8 @@ function CameraScreen({
       }
     };
 
-    const handleIceViewer = async (msg: { candidate: RTCIceCandidateInit }) => {
+    const handleIceViewer = async (msg: { candidate: RTCIceCandidateInit }, id?: string) => {
+      if (id && isDuplicateSignal(id, "ICE_VIEWER", msg)) return;
       const pc = peerRef.current;
       if (!pc) return;
       if (!pc.remoteDescription) {
@@ -615,13 +633,12 @@ function CameraScreen({
     };
 
     if (pCh) {
-      pCh.bind("VIEWER_READY", handleViewerReady);
-      pCh.bind("SDP_ANSWER", handleSdpAnswer);
-      pCh.bind("ICE_VIEWER", handleIceViewer);
+      pCh.bind("VIEWER_READY", (d: any) => handleViewerReady(d?.id));
+      pCh.bind("SDP_ANSWER", (d: any) => handleSdpAnswer(d, d?.id));
+      pCh.bind("ICE_VIEWER", (d: any) => handleIceViewer(d, d?.id));
     }
 
-    // Sequential signal polling (300ms gap between requests) — prevents overlapping
-    // concurrent fetches that can clog the network queue during ICE exchange.
+    // Sequential signal polling (300ms gap between requests)
     const runSignalPoll = async () => {
       while (active && signalPolling) {
         try {
@@ -631,9 +648,9 @@ function CameraScreen({
           if (json.success && Array.isArray(json.signals)) {
             for (const item of json.signals) {
               if (item.ts > lastSignalTs) lastSignalTs = item.ts;
-              if (item.type === "VIEWER_READY") handleViewerReady();
-              if (item.type === "SDP_ANSWER") handleSdpAnswer(item.data);
-              if (item.type === "ICE_VIEWER") handleIceViewer(item.data);
+              if (item.type === "VIEWER_READY") handleViewerReady(item.id);
+              if (item.type === "SDP_ANSWER") handleSdpAnswer(item.data, item.id);
+              if (item.type === "ICE_VIEWER") handleIceViewer(item.data, item.id);
             }
           }
         } catch { /* ignore transient errors */ }

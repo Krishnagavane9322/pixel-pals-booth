@@ -363,10 +363,31 @@ function TabletRemote() {
       sendPusherEvent({ data: { channel, event: type, data } }).catch(console.warn);
     };
 
+    const processedSignalIdsRef = new Set<string>();
+
+    const isDuplicateSignal = (id?: string, type?: string, data?: any) => {
+      const sigKey = id || `${type}-${JSON.stringify(data)}`;
+      if (processedSignalIdsRef.has(sigKey)) return true;
+      processedSignalIdsRef.add(sigKey);
+      if (processedSignalIdsRef.size > 200) {
+        const first = processedSignalIdsRef.values().next().value;
+        if (first) processedSignalIdsRef.delete(first);
+      }
+      return false;
+    };
+
     console.log("[WebRTC] Sending VIEWER_READY to laptop");
     postSignal("VIEWER_READY", {});
 
-    const handleSdpOffer = async (msg: { sdp: { type: RTCSdpType; sdp: string } }) => {
+    const handleSdpOffer = async (msg: { sdp: { type: RTCSdpType; sdp: string } }, id?: string) => {
+      if (id && isDuplicateSignal(id, "SDP_OFFER", msg)) return;
+
+      const existingPc = tabletPeerRef.current;
+      if (existingPc && (existingPc.connectionState === "connected" || existingPc.iceConnectionState === "connected")) {
+        console.log("[WebRTC] SDP offer received but connection is already active — skipping duplicate offer");
+        return;
+      }
+
       console.log("[WebRTC] SDP offer received — creating answer");
       tabletPeerRef.current?.close();
 
@@ -399,7 +420,8 @@ function TabletRemote() {
           remoteVideoRef.current.play().then(() => {
             setHasWebRtcVideo(true);
           }).catch((err) => {
-            console.warn("[WebRTC] Video play error on tablet:", err);
+            // Silently catch transient play() interruptions (e.g. AbortError when video reloads)
+            console.warn("[WebRTC] Video play promise handled:", err?.message || err);
           });
         }
       };
@@ -425,7 +447,8 @@ function TabletRemote() {
       }
     };
 
-    const handleIceHost = async (msg: { candidate: RTCIceCandidateInit }) => {
+    const handleIceHost = async (msg: { candidate: RTCIceCandidateInit }, id?: string) => {
+      if (id && isDuplicateSignal(id, "ICE_HOST", msg)) return;
       const pc = tabletPeerRef.current;
       if (!pc) return;
       if (!pc.remoteDescription) {
@@ -439,11 +462,10 @@ function TabletRemote() {
       }
     };
 
-    channelBus.bind("SDP_OFFER", handleSdpOffer);
-    channelBus.bind("ICE_HOST", handleIceHost);
+    channelBus.bind("SDP_OFFER", (d: any) => handleSdpOffer(d, d?.id));
+    channelBus.bind("ICE_HOST", (d: any) => handleIceHost(d, d?.id));
 
-    // Sequential signal polling — 300ms gap between requests prevents overlapping
-    // concurrent fetches during ICE exchange, which was a major cause of lag.
+    // Sequential signal polling
     const runSignalPoll = async () => {
       while (active && signalPolling) {
         try {
@@ -453,8 +475,8 @@ function TabletRemote() {
           if (json.success && Array.isArray(json.signals)) {
             for (const item of json.signals) {
               if (item.ts > lastSignalTs) lastSignalTs = item.ts;
-              if (item.type === "SDP_OFFER") handleSdpOffer(item.data);
-              if (item.type === "ICE_HOST") handleIceHost(item.data);
+              if (item.type === "SDP_OFFER") handleSdpOffer(item.data, item.id);
+              if (item.type === "ICE_HOST") handleIceHost(item.data, item.id);
             }
           }
         } catch { /* transient errors are fine */ }
