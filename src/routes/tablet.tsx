@@ -141,45 +141,27 @@ function TabletRemote() {
         const remoteScreen = data.screen as TabletState | undefined;
         const remoteStripId = data.stripId ?? null;
 
-        // If kiosk is at welcome screen (or explicit gohome action), sync tablet to TOUCH TO START
+        // Mirror remote screen state directly from /api/session
         if (remoteScreen === "welcome" || data.action === "gohome") {
-          if (stateRef.current !== "welcome") {
-            setState("welcome");
-            setStripUrl(null);
-            setCurrentStripId(null);
-            setQr(null);
-            setShowQR(false);
-            setSnapshotUrl(null);
-            setHasWebRtcVideo(false);
-          }
-        } else if (
-          remoteScreen === "preview" &&
-          remoteStripId &&
-          remoteStripId !== dismissedStripIdRef.current &&
-          stateRef.current !== "preview" &&
-          !loadingRef.current
-        ) {
-          loadingRef.current = true;
-          console.log("[Session Poll] Kiosk is preview with strip", remoteStripId, "— loading");
-          setCurrentStripId(remoteStripId);
-          setState("processing"); // show spinner while we fetch
-          await loadStripForTablet(remoteStripId, null);
-          loadingRef.current = false;
-        }
-
-        // Mirror camera / processing state if we're behind
-        if (
-          remoteScreen === "camera" &&
-          stateRef.current === "welcome" &&
-          !loadingRef.current
-        ) {
+          setState("welcome");
+          setStripUrl(null);
+          setCurrentStripId(null);
+          setQr(null);
+          setShowQR(false);
+          setSnapshotUrl(null);
+          setHasWebRtcVideo(false);
+        } else if (remoteScreen === "camera" && stateRef.current === "welcome") {
           setState("camera");
-        } else if (
-          remoteScreen === "processing" &&
-          stateRef.current === "camera" &&
-          !loadingRef.current
-        ) {
+        } else if (remoteScreen === "processing" && stateRef.current === "camera") {
           setState("processing");
+        } else if (remoteScreen === "preview" && remoteStripId && remoteStripId !== dismissedStripIdRef.current) {
+          if (stateRef.current !== "preview" && !loadingRef.current) {
+            loadingRef.current = true;
+            setCurrentStripId(remoteStripId);
+            setState("preview");
+            await loadStripForTablet(remoteStripId, null);
+            loadingRef.current = false;
+          }
         }
       } catch {
         // Silently ignore network errors — will retry on next tick
@@ -692,7 +674,7 @@ function TabletRemote() {
         CH: {channel}
       </div>
 
-      <AnimatePresence mode="wait">
+      <AnimatePresence>
 
         {/* ── WELCOME ── mirrors laptop Welcome screen exactly */}
         {state === "welcome" && (
