@@ -101,14 +101,28 @@ function Kiosk() {
   useEffect(() => {
     if (typeof window === "undefined") return;
     let stream: MediaStream | null = null;
+
+    // Stop any stale active stream tracks if settings.cameraId changed
+    if ((window as any).__roviCameraStream) {
+      try {
+        const oldStream: MediaStream = (window as any).__roviCameraStream;
+        oldStream.getTracks().forEach((t) => t.stop());
+      } catch {}
+      delete (window as any).__roviCameraStream;
+    }
+
     const initCamera = async () => {
       try {
+        if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
+          console.warn("[Camera Pre-warm] Camera access unavailable (Insecure HTTP connection or missing mediaDevices API)");
+          return;
+        }
         const videoConstraints: MediaTrackConstraints = {
           width: { ideal: 1920 },
           height: { ideal: 1080 },
         };
         if (settings.cameraId) {
-          videoConstraints.deviceId = { exact: settings.cameraId };
+          videoConstraints.deviceId = { ideal: settings.cameraId };
         } else {
           videoConstraints.facingMode = "user";
         }
@@ -139,7 +153,13 @@ function Kiosk() {
   useEffect(() => {
     const handleStart = () => start();
     const handlePrint = () => { if (printTriggerRef.current) printTriggerRef.current(); };
-    const handleGoHome = () => { stopSpeaking(); setScreen("welcome"); };
+    const handleGoHome = () => {
+      stopSpeaking();
+      setPhotos([]);
+      setStrip(null);
+      setScreen("welcome");
+      postSessionState("welcome", null);
+    };
     const handleSettingsUpdate = (newSettings: Settings) => {
       if (newSettings) {
         saveSettings(newSettings);
@@ -269,7 +289,7 @@ function Kiosk() {
             key="c" 
             settings={settings} 
             onDone={onCapturedAll} 
-            onCancel={() => { stopSpeaking(); setScreen("welcome"); }} 
+            onCancel={() => { stopSpeaking(); setPhotos([]); setStrip(null); setScreen("welcome"); postSessionState("welcome", null); }} 
             onStateChange={setCameraState}
             pusherChannelRef={pusherChannelRef}
             channelName={channel}
@@ -282,7 +302,7 @@ function Kiosk() {
             strip={strip} 
             settings={settings} 
             onRetake={() => { stopSpeaking(); start(); }} 
-            onHome={() => { stopSpeaking(); setScreen("welcome"); }} 
+            onHome={() => { stopSpeaking(); setPhotos([]); setStrip(null); setScreen("welcome"); postSessionState("welcome", null); }} 
             printTriggerRef={printTriggerRef}
           />
         )}
@@ -663,13 +683,22 @@ function CameraScreen({
         }
 
         if (!stream) {
+          if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
+            const isHttpInsecure = typeof window !== "undefined" && window.location.protocol === "http:" && window.location.hostname !== "localhost" && window.location.hostname !== "127.0.0.1";
+            throw new Error(
+              isHttpInsecure
+                ? "Camera access requires HTTPS or http://localhost (Browsers block camera access on non-localhost HTTP connections)."
+                : "Camera device or mediaDevices API is not supported on this browser."
+            );
+          }
+
           const videoConstraints: MediaTrackConstraints = {
             width: { ideal: 1920 },
             height: { ideal: 1080 },
           };
 
           if (settings.cameraId) {
-            videoConstraints.deviceId = { exact: settings.cameraId };
+            videoConstraints.deviceId = { ideal: settings.cameraId };
           } else {
             videoConstraints.facingMode = "user";
           }
@@ -799,7 +828,17 @@ function CameraScreen({
           }
         }
       } catch (e: any) {
-        if (!cancelled) setError(e?.message || "Camera permission denied");
+        if (!cancelled) {
+          let msg = e?.message || "Camera access denied or unavailable";
+          if (e?.name === "NotReadableError" || e?.name === "TrackStartError") {
+            msg = "Camera is in use by another application (e.g. Zoom, Teams, Windows Camera App, or OBS). Please close other apps using the camera and try again.";
+          } else if (e?.name === "OverconstrainedError" || e?.name === "NotFoundError") {
+            msg = "Selected camera device not found. Please open Admin Settings (Shift+A) to choose an active camera.";
+          } else if (e?.name === "NotAllowedError" || e?.name === "PermissionDeniedError") {
+            msg = "Camera permission was denied in your browser settings. Please click the camera icon in your browser address bar to allow access.";
+          }
+          setError(msg);
+        }
       }
     })();
 

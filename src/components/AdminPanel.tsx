@@ -93,11 +93,14 @@ export function AdminPanel({
 
     const updateDevices = async () => {
       try {
+        if (typeof navigator === "undefined" || !navigator.mediaDevices?.enumerateDevices) {
+          return;
+        }
         let devList = await navigator.mediaDevices.enumerateDevices();
         let videoDevs = devList.filter((d) => d.kind === "videoinput");
 
         // If labels are empty, try to request permission to reveal labels
-        if (videoDevs.length > 0 && videoDevs.every((d) => !d.label)) {
+        if (videoDevs.length > 0 && videoDevs.every((d) => !d.label) && navigator.mediaDevices.getUserMedia) {
           try {
             const stream = await navigator.mediaDevices.getUserMedia({ video: true });
             stream.getTracks().forEach((track) => track.stop());
@@ -117,10 +120,14 @@ export function AdminPanel({
     };
 
     updateDevices();
-    navigator.mediaDevices.addEventListener("devicechange", updateDevices);
+    if (typeof navigator !== "undefined" && navigator.mediaDevices?.addEventListener) {
+      navigator.mediaDevices.addEventListener("devicechange", updateDevices);
+    }
     return () => {
       active = false;
-      navigator.mediaDevices.removeEventListener("devicechange", updateDevices);
+      if (typeof navigator !== "undefined" && navigator.mediaDevices?.removeEventListener) {
+        navigator.mediaDevices.removeEventListener("devicechange", updateDevices);
+      }
     };
   }, [open]);
 
@@ -194,10 +201,43 @@ export function AdminPanel({
                   <option value="4x6">🖼️ 4" x 6" Grid Print (4 Shots)</option>
                 </select>
               </Field>
-              <Field label="Camera Device">
+              <div className="space-y-1">
+                <div className="flex items-center justify-between">
+                  <div className="text-sm text-muted-foreground">Camera Device</div>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      try {
+                        if (!navigator.mediaDevices?.enumerateDevices) return;
+                        let devList = await navigator.mediaDevices.enumerateDevices();
+                        let videoDevs = devList.filter((d) => d.kind === "videoinput");
+                        if (videoDevs.length > 0 && videoDevs.every((d) => !d.label) && navigator.mediaDevices.getUserMedia) {
+                          const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+                          stream.getTracks().forEach((track) => track.stop());
+                          devList = await navigator.mediaDevices.enumerateDevices();
+                          videoDevs = devList.filter((d) => d.kind === "videoinput");
+                        }
+                        setDevices(videoDevs);
+                      } catch (err) {
+                        console.warn("Failed to refresh camera list:", err);
+                      }
+                    }}
+                    className="text-xs text-primary hover:underline font-semibold"
+                  >
+                    🔄 Refresh Camera List
+                  </button>
+                </div>
                 <select
                   value={s.cameraId}
-                  onChange={(e) => update({ cameraId: e.target.value })}
+                  onChange={(e) => {
+                    if (typeof window !== "undefined" && (window as any).__roviCameraStream) {
+                      try {
+                        ((window as any).__roviCameraStream as MediaStream).getTracks().forEach((t) => t.stop());
+                      } catch {}
+                      delete (window as any).__roviCameraStream;
+                    }
+                    update({ cameraId: e.target.value });
+                  }}
                   className="w-full bg-input border border-border rounded-lg px-3 py-2 text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
                 >
                   <option value="">Default (Facing User / System Default)</option>
@@ -207,7 +247,7 @@ export function AdminPanel({
                     </option>
                   ))}
                 </select>
-              </Field>
+              </div>
               {/* Exposure Section */}
               <div className="border border-border/50 rounded-xl p-4 bg-secondary/10 space-y-4">
                 <h3 className="text-sm font-bold tracking-wider text-accent uppercase">Exposure Controls</h3>

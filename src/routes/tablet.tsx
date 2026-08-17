@@ -50,6 +50,7 @@ function TabletRemote() {
   const [snapshotUrl, setSnapshotUrl] = useState<string | null>(null);
   const [hasWebRtcVideo, setHasWebRtcVideo] = useState(false);
   const [currentStripId, setCurrentStripId] = useState<string | null>(null);
+  const dismissedStripIdRef = useRef<string | null>(null);
 
   // SSE real-time connection — replaces Pusher
   const { bus: channelBus, connected } = useSSEChannel(channel);
@@ -138,11 +139,21 @@ function TabletRemote() {
         const remoteScreen = data.screen as TabletState | undefined;
         const remoteStripId = data.stripId ?? null;
 
-        // If the kiosk has moved to preview with a strip, and we haven't
-        // shown it yet, load it now.
-        if (
+        // If kiosk has reset to welcome, sync tablet to welcome
+        if (remoteScreen === "welcome") {
+          if (stateRef.current !== "welcome") {
+            setState("welcome");
+            setStripUrl(null);
+            setCurrentStripId(null);
+            setQr(null);
+            setShowQR(false);
+            setSnapshotUrl(null);
+            setHasWebRtcVideo(false);
+          }
+        } else if (
           remoteScreen === "preview" &&
           remoteStripId &&
+          remoteStripId !== dismissedStripIdRef.current &&
           stateRef.current !== "preview" &&
           !loadingRef.current
         ) {
@@ -512,11 +523,22 @@ function TabletRemote() {
   }, [state, channel, hasWebRtcVideo]);
 
   const handleStart = () => {
+    dismissedStripIdRef.current = null;
     triggerEvent("START_CAPTURE");
     setState("camera");
   };
 
   const handleGoHome = () => {
+    if (currentStripId) {
+      dismissedStripIdRef.current = currentStripId;
+    }
+    // Post to session API immediately so polling loop sees welcome state
+    fetch(`/api/session?channel=${encodeURIComponent(channel)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ screen: "welcome", stripId: null }),
+    }).catch(() => {});
+
     triggerEvent("GO_HOME");
     setState("welcome");
     setStripUrl(null);
@@ -656,6 +678,7 @@ function TabletRemote() {
   };
 
   const handleRetake = () => {
+    dismissedStripIdRef.current = null;
     triggerEvent("START_CAPTURE");
 
     setState("camera");
