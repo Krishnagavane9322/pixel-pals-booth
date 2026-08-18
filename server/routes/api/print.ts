@@ -40,6 +40,20 @@ export default defineEventHandler(async (event) => {
       return { success: false, error: "No photo strip image found to print" };
     }
 
+    // Store print job in global queue so laptop print-agent can fetch it from Vercel deployment
+    if (!(globalThis as any).__printJobQueue) {
+      (globalThis as any).__printJobQueue = [];
+    }
+    const queue = (globalThis as any).__printJobQueue as Array<any>;
+    queue.push({
+      id: id || `print_${Date.now()}`,
+      dataUrl,
+      printerName,
+      printLayout,
+      ts: Date.now(),
+    });
+    if (queue.length > 20) queue.shift();
+
     // 2. Extract base64 image data and save temporary file
     const base64Data = dataUrl.includes(",") ? dataUrl.split(",")[1] : dataUrl;
     const imgBuffer = Buffer.from(base64Data, "base64");
