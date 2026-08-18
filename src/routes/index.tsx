@@ -1169,7 +1169,27 @@ function Preview({
       printDataUrl = canvas.toDataURL("image/jpeg", 0.94);
     }
 
-    // Direct background printing via hidden iframe — no popups or extra window interface!
+    // 1. Try Direct Silent Server Printing to DS-RX1 via PowerShell (Zero UI / No Print Preview!)
+    try {
+      const res = await fetch("/api/print", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: strip.id, dataUrl: printDataUrl, printerName: "DS-RX1" }),
+      });
+      const json = (await res.json()) as { success?: boolean; mode?: string };
+      if (json && json.success && json.mode === "direct") {
+        console.log("[Laptop] Direct silent native printer job sent to DS-RX1!");
+        logPrint(strip.id);
+        setTimeout(() => {
+          onHome();
+        }, 3500);
+        return;
+      }
+    } catch (err) {
+      console.warn("[Laptop] Direct server print failed, falling back to browser print:", err);
+    }
+
+    // 2. Fallback: Direct background printing via hidden iframe — no popups or extra window interface!
     const existing = document.getElementById("rovi-direct-print-frame");
     if (existing) {
       try { existing.remove(); } catch {}
