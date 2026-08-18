@@ -1169,115 +1169,33 @@ function Preview({
       printDataUrl = canvas.toDataURL("image/jpeg", 0.94);
     }
 
-    // 1. Try Direct Silent Server Printing to DS-RX1 via PowerShell (Zero UI / No Print Preview!)
+    // 1. Direct Silent Server Printing to DS-RX1 via PowerShell (Zero UI / No Print Preview!)
     try {
       const res = await fetch("/api/print", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: strip.id, dataUrl: printDataUrl, printerName: "DS-RX1" }),
+        body: JSON.stringify({
+          id: strip.id,
+          dataUrl: printDataUrl,
+          printerName: settings.printerName || "DS-RX1",
+        }),
       });
-      const json = (await res.json()) as { success?: boolean; mode?: string };
-      if (json && json.success && json.mode === "direct") {
+      const json = (await res.json()) as { success?: boolean; error?: string };
+      if (json && json.success) {
         console.log("[Laptop] Direct silent native printer job sent to DS-RX1!");
         logPrint(strip.id);
-        setTimeout(() => {
-          onHome();
-        }, 3500);
-        return;
+      } else {
+        console.warn("[Laptop] Direct server print returned warning/error:", json?.error);
       }
     } catch (err) {
-      console.warn("[Laptop] Direct server print failed, falling back to browser print:", err);
+      console.warn("[Laptop] Direct server print request failed:", err);
     }
 
-    // 2. Fallback: Direct background printing via hidden iframe — no popups or extra window interface!
-    const existing = document.getElementById("rovi-direct-print-frame");
-    if (existing) {
-      try { existing.remove(); } catch {}
-    }
-
-    const iframe = document.createElement("iframe") as HTMLIFrameElement;
-    iframe.id = "rovi-direct-print-frame";
-    iframe.style.position = "fixed";
-    iframe.style.top = "-9999px";
-    iframe.style.left = "-9999px";
-    iframe.style.width = "1px";
-    iframe.style.height = "1px";
-    iframe.style.border = "none";
-    iframe.style.opacity = "0";
-    iframe.style.pointerEvents = "none";
-
-    document.body.appendChild(iframe);
-
-    const doc = iframe.contentWindow?.document;
-    if (doc) {
-      doc.open();
-      doc.write(`<!DOCTYPE html><html><head><title>ROVI Photo Print</title>
-<style>
-  @page { margin: 0; size: auto; }
-  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-  html, body {
-    width: 100%;
-    height: 100%;
-    margin: 0;
-    padding: 0;
-    background: #ffffff;
-    overflow: hidden;
-    -webkit-print-color-adjust: exact;
-    print-color-adjust: exact;
-  }
-  img {
-    display: block;
-    width: 100vw;
-    height: 100vh;
-    object-fit: fill;
-    page-break-after: avoid;
-    break-after: avoid;
-  }
-</style></head>
-<body>
-  <img id="p" src="${printDataUrl}" />
-</body></html>`);
-      doc.close();
-
-      const printImg = doc.getElementById("p") as HTMLImageElement;
-      const doPrint = () => {
-        setTimeout(() => {
-          try {
-            if (iframe.contentWindow) {
-              iframe.contentWindow.focus();
-              iframe.contentWindow.print();
-            }
-          } catch (err) {
-            console.warn("[Laptop] Direct iframe print failed fallback:", err);
-          }
-        }, 200);
-      };
-
-      if (printImg) {
-        if (printImg.complete) {
-          doPrint();
-        } else {
-          printImg.onload = doPrint;
-        }
-      }
-
-      setTimeout(() => {
-        try { iframe.remove(); } catch {}
-      }, 60000);
-    }
+    // 2. Return to home screen automatically after printing (no browser print preview dialog displayed!)
     logPrint(strip.id);
-
-    // Return to home screen immediately when print dialog finishes/closes, or via 4s fallback timer
-    const handleAfterPrint = () => {
-      window.removeEventListener("afterprint", handleAfterPrint);
-      onHome();
-    };
-    window.addEventListener("afterprint", handleAfterPrint);
-
     setTimeout(() => {
-      window.removeEventListener("afterprint", handleAfterPrint);
       onHome();
-    }, 4000);
+    }, 3500);
   };
 
 

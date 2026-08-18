@@ -67,10 +67,18 @@ if (Test-Path $filePath) {
     $img = [System.Drawing.Image]::FromFile($filePath)
     $pd = New-Object System.Drawing.Printing.PrintDocument
     
-    # Check if target printer exists, else fallback to default system printer
+    # Check if target printer exists (using .Contains() method for StringCollection)
     $installed = [System.Drawing.Printing.PrinterSettings]::InstalledPrinters
-    if ($installed -contains $targetPrinter) {
+    if ($installed.Contains($targetPrinter)) {
         $pd.PrinterSettings.PrinterName = $targetPrinter
+    } else {
+        # Fallback to printer matching targetPrinter name (case-insensitive wildcard)
+        foreach ($p in $installed) {
+            if ($p -like "*$targetPrinter*") {
+                $pd.PrinterSettings.PrinterName = $p
+                break
+            }
+        }
     }
     
     $pd.DefaultPageSettings.Landscape = $true

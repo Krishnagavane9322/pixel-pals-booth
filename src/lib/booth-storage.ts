@@ -4,6 +4,7 @@ export type Settings = {
   watermark: string;
   enablePrint: boolean;
   enableQR: boolean;
+  printerName: string;
   countdownTime: number;
   photoGap: number;
   cameraId: string;
@@ -32,6 +33,7 @@ const DEFAULTS: Settings = {
   watermark: "ROVI AI Photo Booth",
   enablePrint: true,
   enableQR: true,
+  printerName: "DS-RX1",
   countdownTime: 3,
   photoGap: 3,
   cameraId: "",

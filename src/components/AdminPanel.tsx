@@ -201,6 +201,14 @@ export function AdminPanel({
                   <option value="4x6">🖼️ 4" x 6" Grid Print (4 Shots)</option>
                 </select>
               </Field>
+              <Field label="Target Printer Name (Direct Silent Spooler)">
+                <input
+                  value={s.printerName || "DS-RX1"}
+                  onChange={(e) => update({ printerName: e.target.value })}
+                  placeholder="DS-RX1"
+                  className="w-full bg-input border border-border rounded-lg px-3 py-2 text-foreground font-mono text-sm"
+                />
+              </Field>
               <div className="space-y-1">
                 <div className="flex items-center justify-between">
                   <div className="text-sm text-muted-foreground">Camera Device</div>
