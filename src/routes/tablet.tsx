@@ -614,22 +614,33 @@ function TabletRemote() {
     });
   };
 
-  // ── PRINT: triggers printer on laptop kiosk remotely (no browser print dialog on tablet) ────
   const handlePrint = async () => {
     if (isPrinting) return;
     setIsPrinting(true);
 
-    // 1. Trigger print on Laptop kiosk (where DNP DS-RX1 printer is physically connected)
+    // 1. Send direct print request to Nitro server API (/api/print) which spools directly to DS-RX1
+    fetch("/api/print", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        id: currentStripId,
+        dataUrl: stripUrl,
+        printerName: settings.printerName || "DS-RX1",
+        printLayout,
+      }),
+    }).catch((err) => console.warn("[Tablet Print] Direct API call error:", err));
+
+    // 2. Trigger print on Laptop kiosk UI (where DNP DS-RX1 printer is physically connected)
     triggerEvent("TRIGGER_PRINT", { id: currentStripId });
 
-    // 2. Post action: print to /api/session so Laptop receives print trigger even if SSE is offline
+    // 3. Post action: print to /api/session so Laptop receives print trigger even if SSE is offline
     fetch(`/api/session?channel=${encodeURIComponent(channel)}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action: "print", stripId: currentStripId }),
     }).catch(() => {});
 
-    // 3. Auto-return tablet to Welcome screen after 3.5s in sync with Laptop
+    // 4. Auto-return tablet to Welcome screen after 3.5s in sync with Laptop
     setTimeout(() => {
       setIsPrinting(false);
       handleGoHome();

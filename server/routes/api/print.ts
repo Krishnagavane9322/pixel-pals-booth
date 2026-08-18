@@ -65,8 +65,7 @@ $targetPrinter = '${safePrinterName}'
 
 if (Test-Path $filePath) {
     try {
-        $img = [System.Drawing.Image]::FromFile($filePath)
-        $pd = New-Object System.Drawing.Printing.PrintDocument
+        $srcImg = [System.Drawing.Image]::FromFile($filePath)
         
         $installed = [System.Drawing.Printing.PrinterSettings]::InstalledPrinters
         $foundPrinter = $null
@@ -78,21 +77,54 @@ if (Test-Path $filePath) {
         }
         
         if ($foundPrinter) {
+            $pd = New-Object System.Drawing.Printing.PrintDocument
             $pd.PrinterSettings.PrinterName = $foundPrinter
+            $pd.DefaultPageSettings.Landscape = $true
+            $pd.DefaultPageSettings.Margins = New-Object System.Drawing.Printing.Margins(0, 0, 0, 0)
+            
+            $isLandscape = $srcImg.Width -gt $srcImg.Height
+            
+            if ($isLandscape) {
+                $pd.add_PrintPage({
+                    param($sender, $e)
+                    $e.Graphics.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+                    $e.Graphics.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::HighQuality
+                    $e.Graphics.DrawImage($srcImg, $e.PageBounds)
+                })
+                $pd.Print()
+                $srcImg.Dispose()
+            } else {
+                $bmp = New-Object System.Drawing.Bitmap(1800, 1200)
+                $g = [System.Drawing.Graphics]::FromImage($bmp)
+                $g.Clear([System.Drawing.Color]::White)
+                
+                $g.TranslateTransform(0, 1200)
+                $g.RotateTransform(-90)
+                $g.DrawImage($srcImg, 0, 0, 1200, 900)
+                $g.ResetTransform()
+                
+                $g.TranslateTransform(900, 1200)
+                $g.RotateTransform(-90)
+                $g.DrawImage($srcImg, 0, 0, 1200, 900)
+                $g.ResetTransform()
+                
+                $pen = New-Object System.Drawing.Pen([System.Drawing.Color]::LightGray, 3)
+                $pen.DashStyle = [System.Drawing.Drawing2D.DashStyle]::Dash
+                $g.DrawLine($pen, 900, 0, 900, 1200)
+                $pen.Dispose()
+                $g.Dispose()
+                
+                $pd.add_PrintPage({
+                    param($sender, $e)
+                    $e.Graphics.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+                    $e.Graphics.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::HighQuality
+                    $e.Graphics.DrawImage($bmp, $e.PageBounds)
+                })
+                $pd.Print()
+                $bmp.Dispose()
+                $srcImg.Dispose()
+            }
         }
-        
-        $pd.DefaultPageSettings.Landscape = $true
-        $pd.DefaultPageSettings.Margins = New-Object System.Drawing.Printing.Margins(0, 0, 0, 0)
-        
-        $pd.add_PrintPage({
-            param($sender, $e)
-            $e.Graphics.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
-            $e.Graphics.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::HighQuality
-            $e.Graphics.DrawImage($img, $e.PageBounds)
-        })
-        
-        $pd.Print()
-        $img.Dispose()
     } catch {
         Write-Error $_
     }

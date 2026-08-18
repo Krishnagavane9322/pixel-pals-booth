@@ -121,6 +121,16 @@ function Kiosk() {
           lastHandledActionTsRef.current = actionTs;
           if (printTriggerRef.current) {
             printTriggerRef.current();
+          } else {
+            fetch("/api/print", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                id: data.stripId || strip?.id,
+                printerName: settings.printerName || "DS-RX1",
+                printLayout: settings.printLayout || "2x6",
+              }),
+            }).catch(() => {});
           }
         }
 
