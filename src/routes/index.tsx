@@ -1195,6 +1195,8 @@ function Preview({
 
     // 1. Try local print agent on port 3100 (for Vercel deployment direct printing to laptop)
     try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 1500);
       const agentRes = await fetch("http://localhost:3100/print", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1203,7 +1205,9 @@ function Preview({
           dataUrl: printDataUrl,
           printerName: settings.printerName || "DS-RX1",
         }),
+        signal: controller.signal,
       });
+      clearTimeout(timeoutId);
       if (agentRes.ok) {
         const agentJson = await agentRes.json();
         if (agentJson.success) {

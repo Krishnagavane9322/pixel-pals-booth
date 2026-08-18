@@ -618,8 +618,8 @@ function TabletRemote() {
     if (isPrinting) return;
     setIsPrinting(true);
 
-    // 1. Try local print agent on port 3100 first (for Vercel deployment direct printing to laptop)
-    fetch("http://localhost:3100/print", {
+    // 1. Send direct print request to Nitro server API (/api/print)
+    fetch("/api/print", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -628,19 +628,7 @@ function TabletRemote() {
         printerName: settings.printerName || "DS-RX1",
         printLayout,
       }),
-    }).catch(() => {
-      // Fallback to Nitro server /api/print
-      fetch("/api/print", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          id: currentStripId,
-          dataUrl: stripUrl,
-          printerName: settings.printerName || "DS-RX1",
-          printLayout,
-        }),
-      }).catch((err) => console.warn("[Tablet Print] Direct API call error:", err));
-    });
+    }).catch((err) => console.warn("[Tablet Print] Direct API call error:", err));
 
     // 2. Trigger print on Laptop kiosk UI (where DNP DS-RX1 printer is physically connected)
     triggerEvent("TRIGGER_PRINT", { id: currentStripId });
