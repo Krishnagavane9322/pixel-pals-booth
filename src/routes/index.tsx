@@ -1226,15 +1226,56 @@ function Preview({
             printerName: settings.printerName || "DS-RX1",
           }),
         });
-        const json = (await res.json()) as { success?: boolean; error?: string };
-        if (json && json.success) {
+        const json = (await res.json()) as { success?: boolean; mode?: string; error?: string };
+        if (json && json.success && json.mode === "direct") {
           console.log("[Laptop] Direct silent native printer job sent to DS-RX1!");
           logPrint(strip.id);
+          printedLocally = true;
         } else {
-          console.warn("[Laptop] Direct server print returned warning/error:", json?.error);
+          console.warn("[Laptop] Direct server print returned fallback mode");
         }
       } catch (err) {
         console.warn("[Laptop] Direct server print request failed:", err);
+      }
+    }
+
+    // 3. Browser printing fallback for Chrome --kiosk-printing mode on Vercel deployment
+    if (!printedLocally) {
+      try {
+        let iframe = document.getElementById("rovi-silent-print-frame") as HTMLIFrameElement | null;
+        if (!iframe) {
+          iframe = document.createElement("iframe");
+          iframe.id = "rovi-silent-print-frame";
+          iframe.style.position = "fixed";
+          iframe.style.right = "0";
+          iframe.style.bottom = "0";
+          iframe.style.width = "0px";
+          iframe.style.height = "0px";
+          iframe.style.border = "0";
+          document.body.appendChild(iframe);
+        }
+        const doc = iframe.contentWindow?.document;
+        if (doc) {
+          doc.open();
+          doc.write(`
+            <!DOCTYPE html>
+            <html>
+              <head>
+                <style>
+                  @page { size: landscape; margin: 0; }
+                  body { margin: 0; padding: 0; display: flex; justify-content: center; align-items: center; background: white; }
+                  img { width: 100vw; height: 100vh; object-fit: contain; }
+                </style>
+              </head>
+              <body>
+                <img src="${printDataUrl}" onload="window.print()" />
+              </body>
+            </html>
+          `);
+          doc.close();
+        }
+      } catch (err) {
+        console.warn("[Laptop] Browser iframe print fallback error:", err);
       }
     }
 
