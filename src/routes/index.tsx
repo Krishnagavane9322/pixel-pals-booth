@@ -1137,11 +1137,13 @@ function Preview({
     if (settings.printLayout !== "4x6") {
       // 1. Create a temporary image to load the single strip base64 content
       const img = new Image();
-      const loadPromise = new Promise((resolve) => {
-        img.onload = resolve;
+      await new Promise<void>((resolve) => {
+        img.onload = () => resolve();
+        img.onerror = () => resolve();
+        if (img.complete) { resolve(); return; }
+        setTimeout(resolve, 1000);
+        img.src = strip.dataUrl;
       });
-      img.src = strip.dataUrl;
-      await loadPromise;
 
       // 2. Create a 6x4 inch canvas at 300 DPI (1800x1200 px) for landscape printing
       const canvas = document.createElement("canvas");

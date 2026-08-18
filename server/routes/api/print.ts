@@ -64,35 +64,38 @@ $filePath = '${safePrintFile}'
 $targetPrinter = '${safePrinterName}'
 
 if (Test-Path $filePath) {
-    $img = [System.Drawing.Image]::FromFile($filePath)
-    $pd = New-Object System.Drawing.Printing.PrintDocument
-    
-    # Check if target printer exists (using .Contains() method for StringCollection)
-    $installed = [System.Drawing.Printing.PrinterSettings]::InstalledPrinters
-    if ($installed.Contains($targetPrinter)) {
-        $pd.PrinterSettings.PrinterName = $targetPrinter
-    } else {
-        # Fallback to printer matching targetPrinter name (case-insensitive wildcard)
+    try {
+        $img = [System.Drawing.Image]::FromFile($filePath)
+        $pd = New-Object System.Drawing.Printing.PrintDocument
+        
+        $installed = [System.Drawing.Printing.PrinterSettings]::InstalledPrinters
+        $foundPrinter = $null
         foreach ($p in $installed) {
-            if ($p -like "*$targetPrinter*") {
-                $pd.PrinterSettings.PrinterName = $p
+            if ($p -eq $targetPrinter -or $p -like "*$targetPrinter*" -or $p -like "*DS-RX1*" -or $p -like "*RX1*") {
+                $foundPrinter = $p
                 break
             }
         }
+        
+        if ($foundPrinter) {
+            $pd.PrinterSettings.PrinterName = $foundPrinter
+        }
+        
+        $pd.DefaultPageSettings.Landscape = $true
+        $pd.DefaultPageSettings.Margins = New-Object System.Drawing.Printing.Margins(0, 0, 0, 0)
+        
+        $pd.add_PrintPage({
+            param($sender, $e)
+            $e.Graphics.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+            $e.Graphics.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::HighQuality
+            $e.Graphics.DrawImage($img, $e.PageBounds)
+        })
+        
+        $pd.Print()
+        $img.Dispose()
+    } catch {
+        Write-Error $_
     }
-    
-    $pd.DefaultPageSettings.Landscape = $true
-    $pd.DefaultPageSettings.Margins = New-Object System.Drawing.Printing.Margins(0, 0, 0, 0)
-    
-    $pd.add_PrintPage({
-        param($sender, $e)
-        $e.Graphics.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
-        $e.Graphics.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::HighQuality
-        $e.Graphics.DrawImage($img, $e.PageBounds)
-    })
-    
-    $pd.Print()
-    $img.Dispose()
 }
 `;
 
@@ -102,15 +105,15 @@ if (Test-Path $filePath) {
         execFile(
           "powershell.exe",
           ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", psScriptPath],
-          (error) => {
+          (error, stdout, stderr) => {
             // Clean up temporary script and image file after sending to spooler
             setTimeout(() => {
               try { fs.unlinkSync(psScriptPath); } catch {}
               try { fs.unlinkSync(printFile); } catch {}
-            }, 3000);
+            }, 5000);
 
             if (error) {
-              console.warn("[Server Print] Native Windows printing warning:", error);
+              console.warn("[Server Print] Native Windows printing error:", error, stderr);
               resolve({ success: false, mode: "fallback", error: error.message });
             } else {
               console.log("[Server Print] Native direct print sent cleanly to printer!");
