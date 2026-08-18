@@ -1191,9 +1191,11 @@ function Preview({
       printDataUrl = canvas.toDataURL("image/jpeg", 0.94);
     }
 
-    // 1. Direct Silent Server Printing to DS-RX1 via PowerShell (Zero UI / No Print Preview!)
+    let printedLocally = false;
+
+    // 1. Try local print agent on port 3100 (for Vercel deployment direct printing to laptop)
     try {
-      const res = await fetch("/api/print", {
+      const agentRes = await fetch("http://localhost:3100/print", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -1202,15 +1204,38 @@ function Preview({
           printerName: settings.printerName || "DS-RX1",
         }),
       });
-      const json = (await res.json()) as { success?: boolean; error?: string };
-      if (json && json.success) {
-        console.log("[Laptop] Direct silent native printer job sent to DS-RX1!");
-        logPrint(strip.id);
-      } else {
-        console.warn("[Laptop] Direct server print returned warning/error:", json?.error);
+      if (agentRes.ok) {
+        const agentJson = await agentRes.json();
+        if (agentJson.success) {
+          console.log("[Laptop] Direct print spooled via Local Print Agent on port 3100!");
+          logPrint(strip.id);
+          printedLocally = true;
+        }
       }
-    } catch (err) {
-      console.warn("[Laptop] Direct server print request failed:", err);
+    } catch {}
+
+    // 2. Fallback to Nitro server /api/print if local print agent is not active
+    if (!printedLocally) {
+      try {
+        const res = await fetch("/api/print", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            id: strip.id,
+            dataUrl: printDataUrl,
+            printerName: settings.printerName || "DS-RX1",
+          }),
+        });
+        const json = (await res.json()) as { success?: boolean; error?: string };
+        if (json && json.success) {
+          console.log("[Laptop] Direct silent native printer job sent to DS-RX1!");
+          logPrint(strip.id);
+        } else {
+          console.warn("[Laptop] Direct server print returned warning/error:", json?.error);
+        }
+      } catch (err) {
+        console.warn("[Laptop] Direct server print request failed:", err);
+      }
     }
 
     // 2. Return to home screen automatically after printing (no browser print preview dialog displayed!)
