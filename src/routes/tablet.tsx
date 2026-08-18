@@ -554,12 +554,25 @@ function TabletRemote() {
   const handleStart = () => {
     dismissedStripIdRef.current = null;
     localSessionStartTimeRef.current = Date.now();
+
+    // 1. Post action "start" to /api/session immediately
     fetch(`/api/session?channel=${encodeURIComponent(channel)}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ screen: "camera", stripId: null, action: "start" }),
     }).catch(() => {});
+
+    // 2. Also post signal to /api/signal
+    fetch(`/api/signal?channel=${encodeURIComponent(channel)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ type: "START_CAPTURE", data: {} }),
+    }).catch(() => {});
+
+    // 3. Dispatch START_CAPTURE via P2P DataChannel & SSE
     triggerEvent("START_CAPTURE");
+
+    // 4. Set tablet state to camera immediately
     setState("camera");
   };
 

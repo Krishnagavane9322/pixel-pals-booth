@@ -94,7 +94,7 @@ function Kiosk() {
     }).catch(() => {});
   };
 
-  // Poll /api/session on laptop so remote print and go-home actions from tablet
+  // Poll /api/session on laptop so remote start, print, and go-home actions from tablet
   // execute reliably without interrupting active photo capture sessions.
   useEffect(() => {
     let active = true;
@@ -106,17 +106,27 @@ function Kiosk() {
         const data = await res.json();
         if (!data.success || !active) return;
 
-        // 1. Handle remote action: print trigger from tablet
-        if (data.action === "print" && data.actionTs && data.actionTs > lastHandledActionTsRef.current) {
-          lastHandledActionTsRef.current = data.actionTs;
+        const actionTs = data.actionTs || 0;
+
+        // 1. Handle remote action: start capture from tablet
+        if (data.action === "start" && actionTs > lastHandledActionTsRef.current) {
+          lastHandledActionTsRef.current = actionTs;
+          if (screen === "welcome") {
+            start();
+          }
+        }
+
+        // 2. Handle remote action: print trigger from tablet
+        if (data.action === "print" && actionTs > lastHandledActionTsRef.current) {
+          lastHandledActionTsRef.current = actionTs;
           if (printTriggerRef.current) {
             printTriggerRef.current();
           }
         }
 
-        // 2. Handle remote action: explicit go home from tablet
-        if (data.action === "gohome" && data.actionTs && data.actionTs > lastHandledActionTsRef.current) {
-          lastHandledActionTsRef.current = data.actionTs;
+        // 3. Handle remote action: explicit go home from tablet
+        if (data.action === "gohome" && actionTs > lastHandledActionTsRef.current) {
+          lastHandledActionTsRef.current = actionTs;
           if (screen !== "welcome") {
             stopSpeaking();
             setPhotos([]);
@@ -127,7 +137,7 @@ function Kiosk() {
       } catch {}
     };
 
-    const timer = setInterval(poll, 1000);
+    const timer = setInterval(poll, 500);
     poll();
     return () => {
       active = false;
