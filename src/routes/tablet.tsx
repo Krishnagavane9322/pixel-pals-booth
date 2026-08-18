@@ -229,9 +229,8 @@ function TabletRemote() {
       if (msg.enableQR !== undefined) setEnableQR(msg.enableQR);
       if (msg.stripId) setCurrentStripId(msg.stripId);
 
-      // Sync settings to local tablet state
+      // Sync settings to in-memory tablet state without blocking JS thread via localStorage writes
       if ((msg as any).settings) {
-        saveSettings((msg as any).settings);
         setSettings((msg as any).settings);
       } else {
         const patch: Partial<Settings> = {};
@@ -241,9 +240,7 @@ function TabletRemote() {
         if (msg.enablePrint !== undefined) patch.enablePrint = msg.enablePrint;
         if (msg.enableQR !== undefined) patch.enableQR = msg.enableQR;
         if (Object.keys(patch).length > 0) {
-          const next = { ...getSettings(), ...patch };
-          saveSettings(next);
-          setSettings(next);
+          setSettings((prev) => ({ ...prev, ...patch }));
         }
       }
 
@@ -520,8 +517,8 @@ function TabletRemote() {
     const runFramePoll = async () => {
       while (active) {
         if (hasWebRtcVideo) {
-          // WebRTC is streaming — no need to poll JPEG; check again in 500ms
-          await new Promise((r) => setTimeout(r, 500));
+          // WebRTC is live streaming — pause JPEG polling completely
+          await new Promise((r) => setTimeout(r, 2500));
           continue;
         }
         try {
@@ -729,11 +726,16 @@ function TabletRemote() {
 
         {/* ── WELCOME ── mirrors laptop Welcome screen exactly */}
         {state === "welcome" && (
-          <motion.button
+          <button
+            type="button"
             key="w"
-            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
             onClick={handleStart}
-            className="absolute inset-0 w-full h-full flex flex-col items-center justify-center gap-8 px-6 text-center focus:outline-none"
+            onTouchStart={(e) => {
+              e.preventDefault();
+              handleStart();
+            }}
+            style={{ touchAction: "manipulation" }}
+            className="absolute inset-0 w-full h-full flex flex-col items-center justify-center gap-8 px-6 text-center focus:outline-none cursor-pointer select-none active:scale-95 transition-transform duration-100"
           >
             <div className="text-sm tracking-[0.4em] text-muted-foreground">{eventName.toUpperCase()}</div>
             <RobotFace size={240} />
@@ -741,11 +743,12 @@ function TabletRemote() {
               className="text-5xl sm:text-7xl md:text-8xl font-black neon-text"
               animate={{ scale: [1, 1.04, 1] }}
               transition={{ duration: 2, repeat: Infinity }}
+              style={{ transform: "translateZ(0)", willChange: "transform" }}
             >
               TOUCH TO START
             </motion.h1>
             <div className="text-muted-foreground text-lg">Powered by ROVI AI Photo Booth</div>
-          </motion.button>
+          </button>
         )}
 
         {/* ── CAMERA ── mirrors laptop CameraScreen layout */}
@@ -759,7 +762,10 @@ function TabletRemote() {
             <div className="flex items-center justify-between p-4">
               <div className="text-sm tracking-widest text-muted-foreground">PHOTO {shotIdx + 1} / {numShots}</div>
               <button
+                type="button"
                 onClick={handleGoHome}
+                onTouchStart={(e) => { e.preventDefault(); handleGoHome(); }}
+                style={{ touchAction: "manipulation" }}
                 className="p-2 rounded-full bg-card/60 border border-border text-sm px-4"
               >
                 Cancel
@@ -778,9 +784,6 @@ function TabletRemote() {
                   muted
                   className={`absolute inset-0 w-full h-full object-cover z-10 transition-opacity duration-300 ${hasWebRtcVideo ? "opacity-100" : "opacity-0"}`}
                   style={{
-                    // translateZ(0) MUST come first — it promotes the element to its own
-                    // GPU compositing layer so the browser renders the video pipeline
-                    // entirely on the GPU, eliminating main-thread paint every frame.
                     transform: "translateZ(0) scaleX(-1)",
                     willChange: "transform, opacity",
                     backfaceVisibility: "hidden",
@@ -814,16 +817,17 @@ function TabletRemote() {
                   </>
                 )}
 
-                {/* Mirrored countdown overlay */}
-                <AnimatePresence>
+                {/* Mirrored countdown overlay — GPU accelerated */}
+                <AnimatePresence mode="wait">
                   {count !== null && (
                     <motion.div
                       key={count}
-                      initial={{ scale: 2, opacity: 0 }}
+                      initial={{ scale: 1.5, opacity: 0 }}
                       animate={{ scale: 1, opacity: 1 }}
-                      exit={{ scale: 0.5, opacity: 0 }}
-                      transition={{ duration: 0.4 }}
-                      className="absolute inset-0 flex items-center justify-center bg-black/30 z-20"
+                      exit={{ opacity: 0 }}
+                      transition={{ duration: 0.2, ease: "easeOut" }}
+                      className="absolute inset-0 flex items-center justify-center bg-black/30 z-20 pointer-events-none"
+                      style={{ transform: "translateZ(0)", willChange: "transform, opacity" }}
                     >
                       <div className="text-[14rem] sm:text-[18rem] font-black neon-text leading-none">{count}</div>
                     </motion.div>
@@ -996,21 +1000,40 @@ function TabletRemote() {
 }
 
 function TabletBigBtn({
-  onClick, icon, label, tone,
-}: { onClick: () => void; icon: React.ReactNode; label: string; tone: "primary" | "secondary" | "accent" }) {
+  onClick, icon, label, tone, disabled,
+}: { onClick: () => void; icon: React.ReactNode; label: string; tone: "primary" | "secondary" | "accent"; disabled?: boolean }) {
   const styles =
     tone === "primary"
       ? "bg-primary text-primary-foreground"
       : tone === "accent"
         ? "bg-accent text-accent-foreground"
         : "bg-secondary text-secondary-foreground border border-border";
+
+  const touchedRef = useRef(false);
+
+  const handleTouch = (e: React.TouchEvent) => {
+    e.preventDefault();
+    if (touchedRef.current || disabled) return;
+    touchedRef.current = true;
+    onClick();
+    setTimeout(() => { touchedRef.current = false; }, 400);
+  };
+
+  const handleClick = (e: React.MouseEvent) => {
+    if (touchedRef.current || disabled) return;
+    onClick();
+  };
+
   return (
-    <motion.button
-      whileTap={{ scale: 0.96 }}
-      onClick={onClick}
-      className={`flex items-center justify-center gap-3 rounded-2xl py-5 px-5 text-xl font-bold shadow-lg ${styles}`}
+    <button
+      type="button"
+      disabled={disabled}
+      onTouchStart={handleTouch}
+      onClick={handleClick}
+      style={{ touchAction: "manipulation" }}
+      className={`flex items-center justify-center gap-3 rounded-2xl py-5 px-5 text-xl font-bold shadow-lg active:scale-95 transition-transform ${styles} ${disabled ? "opacity-50 cursor-not-allowed" : "cursor-pointer select-none"}`}
     >
       {icon}<span>{label}</span>
-    </motion.button>
+    </button>
   );
 }
