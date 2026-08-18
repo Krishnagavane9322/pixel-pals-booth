@@ -1175,7 +1175,7 @@ function Preview({
       try { existing.remove(); } catch {}
     }
 
-    const iframe = document.createElement("iframe");
+    const iframe = document.createElement("iframe") as HTMLIFrameElement;
     iframe.id = "rovi-direct-print-frame";
     iframe.style.position = "fixed";
     iframe.style.top = "-9999px";
@@ -1216,18 +1216,30 @@ function Preview({
 </style></head>
 <body>
   <img id="p" src="${printDataUrl}" />
-  <script>
-    document.getElementById('p').onload = function() {
-      setTimeout(function() {
-        try {
-          window.focus();
-          window.print();
-        } catch(e) {}
-      }, 200);
-    };
-  </script>
 </body></html>`);
       doc.close();
+
+      const printImg = doc.getElementById("p") as HTMLImageElement;
+      const doPrint = () => {
+        setTimeout(() => {
+          try {
+            if (iframe.contentWindow) {
+              iframe.contentWindow.focus();
+              iframe.contentWindow.print();
+            }
+          } catch (err) {
+            console.warn("[Laptop] Direct iframe print failed fallback:", err);
+          }
+        }, 200);
+      };
+
+      if (printImg) {
+        if (printImg.complete) {
+          doPrint();
+        } else {
+          printImg.onload = doPrint;
+        }
+      }
 
       setTimeout(() => {
         try { iframe.remove(); } catch {}
@@ -1300,6 +1312,20 @@ function Preview({
       </div>
 
       <AnimatePresence>
+        {isPrinting && (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.9 }}
+            className="fixed inset-0 z-[99990] bg-black/85 backdrop-blur flex flex-col items-center justify-center p-6 text-center text-white"
+          >
+            <Printer className="w-16 h-16 text-primary animate-bounce mb-4" />
+            <h3 className="text-3xl font-black neon-text mb-2">Printing Photo Strip</h3>
+            <p className="text-muted-foreground text-base max-w-sm">
+              Printing photo strip to connected printer. Please wait...
+            </p>
+          </motion.div>
+        )}
         {showQR && qr && (
           <motion.div
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}

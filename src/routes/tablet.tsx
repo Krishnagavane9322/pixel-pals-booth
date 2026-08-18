@@ -50,7 +50,12 @@ function TabletRemote() {
   const [snapshotUrl, setSnapshotUrl] = useState<string | null>(null);
   const [hasWebRtcVideo, setHasWebRtcVideo] = useState(false);
   const [currentStripId, setCurrentStripId] = useState<string | null>(null);
+  const [isPrinting, setIsPrinting] = useState(false);
   const dismissedStripIdRef = useRef<string | null>(null);
+
+  // Timestamps to prevent stale session polling overrides
+  const lastHandledActionTsRef = useRef<number>(0);
+  const localSessionStartTimeRef = useRef<number>(0);
 
   // SSE real-time connection — replaces Pusher
   const { bus: channelBus, connected } = useSSEChannel(channel);
@@ -140,9 +145,11 @@ function TabletRemote() {
         if (!data.success || !active) return;
         const remoteScreen = data.screen as TabletState | undefined;
         const remoteStripId = data.stripId ?? null;
+        const actionTs = data.actionTs || 0;
 
-        // Mirror remote screen state directly from /api/session
-        if (remoteScreen === "welcome" || data.action === "gohome") {
+        // 1. Handle remote action "gohome" ONLY if it is newer than our last handled timestamp
+        if (data.action === "gohome" && actionTs > lastHandledActionTsRef.current) {
+          lastHandledActionTsRef.current = actionTs;
           setState("welcome");
           setStripUrl(null);
           setCurrentStripId(null);
@@ -150,9 +157,26 @@ function TabletRemote() {
           setShowQR(false);
           setSnapshotUrl(null);
           setHasWebRtcVideo(false);
+          return;
+        }
+
+        // 2. Safe screen synchronization
+        // Do NOT force reset to welcome if user locally started a capture session < 3 seconds ago
+        const isRecentlyStartedLocally = (Date.now() - localSessionStartTimeRef.current) < 3000;
+
+        if (remoteScreen === "welcome") {
+          if (!isRecentlyStartedLocally && stateRef.current !== "welcome") {
+            setState("welcome");
+            setStripUrl(null);
+            setCurrentStripId(null);
+            setQr(null);
+            setShowQR(false);
+            setSnapshotUrl(null);
+            setHasWebRtcVideo(false);
+          }
         } else if (remoteScreen === "camera" && stateRef.current === "welcome") {
           setState("camera");
-        } else if (remoteScreen === "processing" && stateRef.current === "camera") {
+        } else if (remoteScreen === "processing" && (stateRef.current === "camera" || stateRef.current === "welcome")) {
           setState("processing");
         } else if (remoteScreen === "preview" && remoteStripId && remoteStripId !== dismissedStripIdRef.current) {
           if (stateRef.current !== "preview" && !loadingRef.current) {
@@ -532,6 +556,7 @@ function TabletRemote() {
 
   const handleStart = () => {
     dismissedStripIdRef.current = null;
+    localSessionStartTimeRef.current = Date.now();
     fetch(`/api/session?channel=${encodeURIComponent(channel)}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -545,6 +570,9 @@ function TabletRemote() {
     if (currentStripId) {
       dismissedStripIdRef.current = currentStripId;
     }
+    const now = Date.now();
+    lastHandledActionTsRef.current = now;
+
     // Post to session API immediately so polling loop sees welcome state
     fetch(`/api/session?channel=${encodeURIComponent(channel)}`, {
       method: "POST",
@@ -560,6 +588,7 @@ function TabletRemote() {
     setShowQR(false);
     setSnapshotUrl(null);
     setHasWebRtcVideo(false);
+    setIsPrinting(false);
   };
 
   // Helper: convert an http/https URL to a base64 data URL by fetching as blob
@@ -577,6 +606,9 @@ function TabletRemote() {
 
   // ── PRINT: triggers printer on laptop kiosk remotely (no browser print dialog on tablet) ────
   const handlePrint = async () => {
+    if (isPrinting) return;
+    setIsPrinting(true);
+
     // 1. Trigger print on Laptop kiosk (where DNP DS-RX1 printer is physically connected)
     triggerEvent("TRIGGER_PRINT", { id: currentStripId });
 
@@ -589,6 +621,7 @@ function TabletRemote() {
 
     // 3. Auto-return tablet to Welcome screen after 3.5s in sync with Laptop
     setTimeout(() => {
+      setIsPrinting(false);
       handleGoHome();
     }, 3500);
   };
@@ -668,6 +701,24 @@ function TabletRemote() {
       {flash && (
         <div className="fixed inset-0 bg-white z-[99999] pointer-events-none" />
       )}
+
+      {/* Direct Remote Printing Status Overlay on Tablet */}
+      <AnimatePresence>
+        {isPrinting && (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.9 }}
+            className="fixed inset-0 z-[99990] bg-black/85 backdrop-blur flex flex-col items-center justify-center p-6 text-center text-white"
+          >
+            <Printer className="w-16 h-16 text-primary animate-bounce mb-4" />
+            <h3 className="text-3xl font-black neon-text mb-2">Printing Photo Strip</h3>
+            <p className="text-muted-foreground text-base max-w-sm">
+              Sending print job directly to the printer connected to the main screen. Please wait...
+            </p>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Small channel tag */}
       <div className="absolute top-4 left-4 text-xs font-mono text-muted-foreground/30 z-10">
