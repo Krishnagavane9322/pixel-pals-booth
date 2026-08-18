@@ -89,14 +89,21 @@ if (Test-Path $filePath) {
                     param($sender, $e)
                     $e.Graphics.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
                     $e.Graphics.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::HighQuality
-                    $e.Graphics.DrawImage($srcImg, $e.PageBounds)
+                    $e.Graphics.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
+                    $rect = New-Object System.Drawing.Rectangle(0, 0, $e.PageBounds.Width, $e.PageBounds.Height)
+                    $e.Graphics.DrawImage($srcImg, $rect)
+                })
+                $pd.add_EndPrint({
+                    param($sender, $e)
+                    if ($srcImg) { $srcImg.Dispose() }
                 })
                 $pd.Print()
-                $srcImg.Dispose()
             } else {
                 $bmp = New-Object System.Drawing.Bitmap(1800, 1200)
                 $g = [System.Drawing.Graphics]::FromImage($bmp)
                 $g.Clear([System.Drawing.Color]::White)
+                $g.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+                $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::HighQuality
                 
                 $g.TranslateTransform(0, 1200)
                 $g.RotateTransform(-90)
@@ -118,11 +125,16 @@ if (Test-Path $filePath) {
                     param($sender, $e)
                     $e.Graphics.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
                     $e.Graphics.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::HighQuality
-                    $e.Graphics.DrawImage($bmp, $e.PageBounds)
+                    $e.Graphics.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
+                    $rect = New-Object System.Drawing.Rectangle(0, 0, $e.PageBounds.Width, $e.PageBounds.Height)
+                    $e.Graphics.DrawImage($bmp, $rect)
+                })
+                $pd.add_EndPrint({
+                    param($sender, $e)
+                    if ($bmp) { $bmp.Dispose() }
+                    if ($srcImg) { $srcImg.Dispose() }
                 })
                 $pd.Print()
-                $bmp.Dispose()
-                $srcImg.Dispose()
             }
         }
     } catch {
