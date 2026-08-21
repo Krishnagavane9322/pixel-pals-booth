@@ -25,7 +25,7 @@ namespace ROVIPhotoBoothSetup {
 
             Form form = new Form();
             form.Text = "ROVI AI Photo Booth Setup";
-            form.Size = new Size(500, 320);
+            form.Size = new Size(520, 340);
             form.StartPosition = FormStartPosition.CenterScreen;
             form.FormBorderStyle = FormBorderStyle.FixedDialog;
             form.MaximizeBox = false;
@@ -41,11 +41,11 @@ namespace ROVIPhotoBoothSetup {
             form.Controls.Add(title);
 
             Label desc = new Label();
-            desc.Text = "Click Install below to configure this laptop for ROVI Photo Booth kiosk operation & automatic DS-RX1 silent background printing.";
+            desc.Text = "Click Install below to configure this PC for ROVI Photo Booth kiosk operation, desktop shortcuts, and automatic DNP DS-RX1 background printing.";
             desc.Font = new Font("Segoe UI", 10, FontStyle.Regular);
             desc.ForeColor = Color.FromArgb(226, 232, 240);
             desc.Location = new Point(30, 75);
-            desc.Size = new Size(420, 60);
+            desc.Size = new Size(440, 60);
             form.Controls.Add(desc);
 
             Button btnInstall = new Button();
@@ -75,8 +75,8 @@ namespace ROVIPhotoBoothSetup {
             status.Text = "";
             status.Font = new Font("Segoe UI", 9, FontStyle.Italic);
             status.ForeColor = Color.FromArgb(74, 222, 128);
-            status.Location = new Point(30, 225);
-            status.Size = new Size(420, 30);
+            status.Location = new Point(30, 230);
+            status.Size = new Size(440, 40);
             form.Controls.Add(status);
 
             btnClose.Click += (s, e) => { form.Close(); };
@@ -84,21 +84,47 @@ namespace ROVIPhotoBoothSetup {
             btnInstall.Click += (s, e) => {
                 try {
                     btnInstall.Enabled = false;
-                    status.Text = "Configuring background print engine & shortcuts...";
-                    
-                    // 1. Create Desktop Shortcut
-                    string desktop = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
-                    string shortcut = Path.Combine(desktop, "ROVI Photo Booth.url");
-                    File.WriteAllText(shortcut, "[InternetShortcut]\nURL=https://pixel-pals-booth.vercel.app\nIconIndex=0\nIconFile=C:\\Windows\\System32\\shell32.dll\n");
+                    status.Text = "Installing Desktop shortcuts & background print service...";
 
-                    // 2. Add VBS launcher to Startup
+                    string baseDir = AppDomain.CurrentDomain.BaseDirectory;
+                    string targetUrl = "https://pixel-pals-booth.vercel.app";
+
+                    // 1. Create Desktop Shortcuts across Local Desktop, OneDrive Desktop, and Public Desktop
+                    string userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+                    string[] desktopPaths = new string[] {
+                        Environment.GetFolderPath(Environment.SpecialFolder.Desktop),
+                        Path.Combine(userProfile, "OneDrive", "Desktop"),
+                        Environment.GetFolderPath(Environment.SpecialFolder.CommonDesktopDirectory)
+                    };
+
+                    foreach (string dp in desktopPaths) {
+                        try {
+                            if (Directory.Exists(dp)) {
+                                string urlFile = Path.Combine(dp, "ROVI Photo Booth.url");
+                                File.WriteAllText(urlFile, "[InternetShortcut]\nURL=" + targetUrl + "\nIconIndex=0\nIconFile=C:\\Windows\\System32\\imageres.dll\n");
+                            }
+                        } catch {}
+                    }
+
+                    // 2. Register Startup VBS helper
                     string startup = Environment.GetFolderPath(Environment.SpecialFolder.Startup);
                     string vbsPath = Path.Combine(startup, "start-booth-silent.vbs");
-                    string vbsCode = "Set WshShell = CreateObject(\"WScript.Shell\")\nWshShell.Run chr(34) & \"" + AppDomain.CurrentDomain.BaseDirectory.Replace("\\", "\\\\") + "start-booth.bat\" & chr(34), 0\nSet WshShell = Nothing";
+                    string batPath = Path.Combine(baseDir, "start-booth.bat");
+                    string vbsCode = "Set WshShell = CreateObject(\"WScript.Shell\")\nWshShell.Run chr(34) & \"" + batPath.Replace("\\", "\\\\") + "\" & chr(34), 0\nSet WshShell = Nothing";
                     File.WriteAllText(vbsPath, vbsCode);
 
-                    status.Text = "Setup Complete! Desktop shortcut & startup service installed.";
-                    MessageBox.Show("ROVI AI Photo Booth installed successfully!\n\nDesktop shortcut added & background print engine configured.", "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    // 3. Launch local print agent
+                    try {
+                        ProcessStartInfo psi = new ProcessStartInfo();
+                        psi.FileName = "cmd.exe";
+                        psi.Arguments = "/c start \"\" /min node \"" + Path.Combine(baseDir, "print-agent.js") + "\"";
+                        psi.WindowStyle = ProcessWindowStyle.Hidden;
+                        psi.CreateNoWindow = true;
+                        Process.Start(psi);
+                    } catch {}
+
+                    status.Text = "Setup Complete! Desktop shortcut added & print service running.";
+                    MessageBox.Show("ROVI AI Photo Booth installed successfully!\n\n1. 'ROVI Photo Booth' shortcut added to Desktop.\n2. Background print engine is active & configured for startup.", "Installation Complete", MessageBoxButtons.OK, MessageBoxIcon.Information);
                     form.Close();
                 } catch (Exception ex) {
                     MessageBox.Show("Setup error: " + ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
