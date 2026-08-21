@@ -19,17 +19,12 @@ if exist "%ISCC_PATH%" (
     goto DONE
 )
 
-:: 2. Fallback: Build Self-Extracting Windows Installer Package via PowerShell
-echo [1/2] Inno Setup compiler not found. Building automated Installer Package via PowerShell...
-
-set "DIST_DIR=%~dp0dist"
-set "PKG_NAME=PhotoBooth-Setup"
-
-powershell -NoProfile -ExecutionPolicy Bypass -Command "Compress-Archive -Path '%~dp0print-agent.js', '%~dp0service-install.js', '%~dp0service-uninstall.js', '%~dp0Install-On-Client-Laptop.bat', '%~dp0start-booth-silent.vbs', '%~dp0CLIENT_INSTRUCTIONS.md' -DestinationPath '%~dp0dist\PhotoBooth-Setup.zip' -Force; Copy-Item '%~dp0dist\PhotoBooth-Setup.zip' '%~dp0dist\PhotoBooth-Setup.exe' -Force"
+echo [1/2] Compiling genuine native Windows executable PhotoBooth-Setup.exe...
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0make-installer.ps1"
 
 echo.
 echo =========================================================
-echo    SUCCESS! PhotoBooth-Setup.exe ready in dist\
+echo    SUCCESS! Native PhotoBooth-Setup.exe created in dist\
 echo =========================================================
 echo.
 
