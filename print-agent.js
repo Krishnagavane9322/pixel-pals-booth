@@ -149,6 +149,24 @@ async function fetchJson(url) {
   });
 }
 
+async function downloadImageAsDataUrl(url) {
+  return new Promise((resolve) => {
+    const client = url.startsWith('https') ? https : http;
+    client.get(url, (res) => {
+      const chunks = [];
+      res.on('data', (chunk) => chunks.push(chunk));
+      res.on('end', () => {
+        try {
+          const buffer = Buffer.concat(chunks);
+          const b64 = buffer.toString('base64');
+          const mime = res.headers['content-type'] || 'image/jpeg';
+          resolve(`data:${mime};base64,${b64}`);
+        } catch { resolve(null); }
+      });
+    }).on('error', () => resolve(null));
+  });
+}
+
 async function pollForPrintJobs() {
   try {
     // 1. Check /api/session for a pending print action (include channel)
@@ -163,19 +181,34 @@ async function pollForPrintJobs() {
       lastHandledPrintTs = actionTs;
       console.log(`[Print Agent] Print action detected! Fetching strip ${stripId} from Vercel...`);
 
-      // 2. Fetch the actual photo strip image by ID from /api/strip
+      // 2. Fetch strip info from /api/strip
       const stripRes = await fetchJson(`${VERCEL_URL}/api/strip?id=${encodeURIComponent(stripId)}`);
 
-      if (stripRes && stripRes.success && stripRes.dataUrl) {
-        console.log(`[Print Agent] Strip image fetched (${Math.round(stripRes.dataUrl.length / 1024)}KB). Spooling to DS-RX1...`);
-        await printJob(stripRes.dataUrl, 'DS-RX1');
-        console.log(`[Print Agent] ✅ Print job spooled successfully to DS-RX1!`);
+      if (stripRes && stripRes.success) {
+        if (stripRes.blobUrl) {
+          // Best path: download image directly from Vercel Blob public URL
+          console.log(`[Print Agent] Downloading from Blob URL: ${stripRes.blobUrl}`);
+          const dataUrl = await downloadImageAsDataUrl(stripRes.blobUrl);
+          if (dataUrl) {
+            await printJob(dataUrl, 'DS-RX1');
+            console.log(`[Print Agent] ✅ Printed successfully from Blob URL!`);
+          } else {
+            console.warn(`[Print Agent] ❌ Failed to download image from Blob URL`);
+          }
+        } else if (stripRes.dataUrl) {
+          // Fallback: use base64 dataUrl directly
+          console.log(`[Print Agent] Using base64 dataUrl (${Math.round(stripRes.dataUrl.length / 1024)}KB). Spooling...`);
+          await printJob(stripRes.dataUrl, 'DS-RX1');
+          console.log(`[Print Agent] ✅ Printed successfully from dataUrl!`);
+        } else {
+          console.warn(`[Print Agent] ❌ Strip ${stripId} returned no image data`);
+        }
       } else {
-        console.warn(`[Print Agent] ❌ Strip ${stripId} not found on Vercel:`, stripRes?.error);
+        console.warn(`[Print Agent] ❌ Strip ${stripId} not found:`, stripRes?.error);
       }
     }
   } catch (err) {
-    // Ignore transient network errors
+    console.warn(`[Print Agent] Poll error:`, err.message);
   }
 }
 

@@ -3,17 +3,37 @@ import fs from "fs";
 import path from "path";
 import os from "os";
 
-type StripEntry = { dataUrl: string; createdAt: number };
+type StripEntry = { dataUrl: string; blobUrl?: string; createdAt: number };
 const globalStripStore = (globalThis as any).__globalStripStore || new Map<string, StripEntry>();
 (globalThis as any).__globalStripStore = globalStripStore;
 
-// Clean entries older than 30 minutes
+// Clean entries older than 60 minutes
 function cleanup() {
   const now = Date.now();
   for (const [key, entry] of globalStripStore.entries()) {
-    if (now - entry.createdAt > 30 * 60 * 1000) {
+    if (now - entry.createdAt > 60 * 60 * 1000) {
       globalStripStore.delete(key);
     }
+  }
+}
+
+async function uploadToBlob(id: string, base64Data: string): Promise<string | null> {
+  try {
+    const token = process.env.BLOB_READ_WRITE_TOKEN;
+    if (!token) return null;
+
+    const { put } = await import("@vercel/blob");
+    const buffer = Buffer.from(base64Data, "base64");
+    const blob = await put(`print-strips/${id}.jpg`, buffer, {
+      access: "public",
+      contentType: "image/jpeg",
+      addRandomSuffix: false,
+    });
+    console.log(`[Strip API] Uploaded strip ${id} to Vercel Blob: ${blob.url}`);
+    return blob.url;
+  } catch (e) {
+    console.warn("[Strip API] Blob upload failed:", e);
+    return null;
   }
 }
 
@@ -26,18 +46,25 @@ export default defineEventHandler(async (event) => {
       const { id, dataUrl } = body || {};
       if (id && dataUrl) {
         cleanup();
+
+        const base64Data = dataUrl.includes(",") ? dataUrl.split(",")[1] : dataUrl;
+
+        // 1. Store in-memory
         globalStripStore.set(id, { dataUrl, createdAt: Date.now() });
 
-        // Save to /tmp/photos/<id>.jpg for cross-lambda sharing on Vercel
+        // 2. Save to /tmp disk as fallback
         try {
-          const base64Data = dataUrl.includes(",") ? dataUrl.split(",")[1] : dataUrl;
           const buffer = Buffer.from(base64Data, "base64");
           const tmpDir = path.join(os.tmpdir(), "photos");
-          if (!fs.existsSync(tmpDir)) {
-            fs.mkdirSync(tmpDir, { recursive: true });
-          }
+          if (!fs.existsSync(tmpDir)) fs.mkdirSync(tmpDir, { recursive: true });
           await fs.promises.writeFile(path.join(tmpDir, `${id}.jpg`), buffer);
         } catch (e) {}
+
+        // 3. Upload to Vercel Blob for reliable cross-lambda access
+        const blobUrl = await uploadToBlob(id, base64Data);
+        if (blobUrl) {
+          globalStripStore.set(id, { dataUrl, blobUrl, createdAt: Date.now() });
+        }
       }
       return { success: true };
     } catch (err: any) {
@@ -48,30 +75,37 @@ export default defineEventHandler(async (event) => {
   if (method === "GET") {
     const query = getQuery(event);
     const id = String(query.id || "");
-
     if (!id) return { success: false, error: "Missing id parameter" };
 
-    // 1. Check in-memory global store
+    // 1. Check in-memory (has blobUrl if blob upload succeeded)
     const inMem = globalStripStore.get(id);
-    if (inMem) {
+    if (inMem?.blobUrl) {
+      return { success: true, blobUrl: inMem.blobUrl, dataUrl: inMem.dataUrl };
+    }
+    if (inMem?.dataUrl) {
       return { success: true, dataUrl: inMem.dataUrl };
     }
 
-    // 2. Check disk /tmp/photos/<id>.jpg or public/photos/<id>.jpg
+    // 2. Check Vercel Blob by known URL pattern
     try {
-      const filename = `${id}.jpg`;
-      const publicPath = path.join(process.cwd(), "public", "photos", filename);
-      const tmpPath = path.join(os.tmpdir(), "photos", filename);
-
-      let targetPath = publicPath;
-      if (!fs.existsSync(targetPath)) {
-        targetPath = tmpPath;
+      const { list } = await import("@vercel/blob");
+      const token = process.env.BLOB_READ_WRITE_TOKEN;
+      if (token) {
+        const { blobs } = await list({ prefix: `print-strips/${id}` });
+        if (blobs.length > 0) {
+          return { success: true, blobUrl: blobs[0].url };
+        }
       }
+    } catch (e) {}
 
-      if (fs.existsSync(targetPath)) {
+    // 3. Check disk /tmp
+    try {
+      const tmpPath = path.join(os.tmpdir(), "photos", `${id}.jpg`);
+      const pubPath = path.join(process.cwd(), "public", "photos", `${id}.jpg`);
+      const targetPath = fs.existsSync(pubPath) ? pubPath : (fs.existsSync(tmpPath) ? tmpPath : null);
+      if (targetPath) {
         const buffer = await fs.promises.readFile(targetPath);
-        const base64 = buffer.toString("base64");
-        return { success: true, dataUrl: `data:image/jpeg;base64,${base64}` };
+        return { success: true, dataUrl: `data:image/jpeg;base64,${buffer.toString("base64")}` };
       }
     } catch (e) {}
 
