@@ -7,8 +7,9 @@ import { execFile } from 'child_process';
 
 const PORT = 3100;
 const VERCEL_URL = process.env.VERCEL_URL || 'https://pixel-pals-booth.vercel.app';
+const CHANNEL = process.env.BOOTH_CHANNEL || 'rovi-booth-default';
 
-let lastProcessedTs = 0;
+let lastHandledPrintTs = 0;
 
 // Helper to spool base64 image data to Windows printer DS-RX1
 async function printJob(dataUrl, printerName = 'DS-RX1') {
@@ -133,35 +134,54 @@ if (Test-Path $filePath) {
   });
 }
 
-// Polling loop to fetch print jobs from Vercel cloud queue
-async function pollCloudQueue() {
-  const fetchUrl = `${VERCEL_URL}/api/print-queue?since=${lastProcessedTs}`;
-  const client = fetchUrl.startsWith('https') ? https : http;
+// Poll /api/session for print action, then fetch strip image from /api/strip by ID
 
-  client.get(fetchUrl, (res) => {
-    let rawData = '';
-    res.on('data', (chunk) => { rawData += chunk; });
-    res.on('end', async () => {
-      try {
-        const json = JSON.parse(rawData);
-        if (json.success && Array.isArray(json.jobs)) {
-          for (const job of json.jobs) {
-            if (job.ts > lastProcessedTs) {
-              lastProcessedTs = job.ts;
-              console.log(`[Cloud Queue] Received print job ${job.id} from Vercel cloud! Spooling...`);
-              await printJob(job.dataUrl, job.printerName || 'DS-RX1');
-            }
-          }
-        }
-      } catch {}
-    });
-  }).on('error', () => {
-    // Ignore transient network errors
+async function fetchJson(url) {
+  return new Promise((resolve) => {
+    const client = url.startsWith('https') ? https : http;
+    client.get(url, (res) => {
+      let raw = '';
+      res.on('data', (chunk) => { raw += chunk; });
+      res.on('end', () => {
+        try { resolve(JSON.parse(raw)); } catch { resolve(null); }
+      });
+    }).on('error', () => resolve(null));
   });
 }
 
-// Poll cloud queue every 1000ms
-setInterval(pollCloudQueue, 1000);
+async function pollForPrintJobs() {
+  try {
+    // 1. Check /api/session for a pending print action (include channel)
+    const session = await fetchJson(`${VERCEL_URL}/api/session?channel=${encodeURIComponent(CHANNEL)}`);
+    if (!session) return;
+
+    const actionTs = session.actionTs || 0;
+    const action = session.action;
+    const stripId = session.stripId;
+
+    if (action === 'print' && stripId && actionTs > lastHandledPrintTs) {
+      lastHandledPrintTs = actionTs;
+      console.log(`[Print Agent] Print action detected! Fetching strip ${stripId} from Vercel...`);
+
+      // 2. Fetch the actual photo strip image by ID from /api/strip
+      const stripRes = await fetchJson(`${VERCEL_URL}/api/strip?id=${encodeURIComponent(stripId)}`);
+
+      if (stripRes && stripRes.success && stripRes.dataUrl) {
+        console.log(`[Print Agent] Strip image fetched (${Math.round(stripRes.dataUrl.length / 1024)}KB). Spooling to DS-RX1...`);
+        await printJob(stripRes.dataUrl, 'DS-RX1');
+        console.log(`[Print Agent] ✅ Print job spooled successfully to DS-RX1!`);
+      } else {
+        console.warn(`[Print Agent] ❌ Strip ${stripId} not found on Vercel:`, stripRes?.error);
+      }
+    }
+  } catch (err) {
+    // Ignore transient network errors
+  }
+}
+
+// Poll for print jobs every 1200ms
+setInterval(pollForPrintJobs, 1200);
+
 
 const server = http.createServer((req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
