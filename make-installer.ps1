@@ -84,7 +84,7 @@ namespace ROVIPhotoBoothSetup {
             btnInstall.Click += (s, e) => {
                 try {
                     btnInstall.Enabled = false;
-                    status.Text = "Installing Desktop shortcuts & background print service...";
+                    status.Text = "Installing ROVI Print Agent as a Windows Service...";
 
                     string baseDir = AppDomain.CurrentDomain.BaseDirectory;
                     string targetUrl = "https://pixel-pals-booth.vercel.app";
@@ -106,25 +106,20 @@ namespace ROVIPhotoBoothSetup {
                         } catch {}
                     }
 
-                    // 2. Register Startup VBS helper
-                    string startup = Environment.GetFolderPath(Environment.SpecialFolder.Startup);
-                    string vbsPath = Path.Combine(startup, "start-booth-silent.vbs");
-                    string batPath = Path.Combine(baseDir, "start-booth.bat");
-                    string vbsCode = "Set WshShell = CreateObject(\"WScript.Shell\")\nWshShell.Run chr(34) & \"" + batPath.Replace("\\", "\\\\") + "\" & chr(34), 0\nSet WshShell = Nothing";
-                    File.WriteAllText(vbsPath, vbsCode);
-
-                    // 3. Launch local print agent
+                    // 2. Install print agent as permanent Windows Service (auto-start, auto-restart)
                     try {
                         ProcessStartInfo psi = new ProcessStartInfo();
-                        psi.FileName = "cmd.exe";
-                        psi.Arguments = "/c start \"\" /min node \"" + Path.Combine(baseDir, "print-agent.js") + "\"";
-                        psi.WindowStyle = ProcessWindowStyle.Hidden;
-                        psi.CreateNoWindow = true;
-                        Process.Start(psi);
+                        psi.FileName = "node.exe";
+                        psi.Arguments = "\"" + Path.Combine(baseDir, "install-service.js") + "\"";
+                        psi.WorkingDirectory = baseDir;
+                        psi.Verb = "runas";
+                        psi.WindowStyle = ProcessWindowStyle.Normal;
+                        Process proc = Process.Start(psi);
+                        if (proc != null) proc.WaitForExit(20000);
                     } catch {}
 
-                    status.Text = "Setup Complete! Desktop shortcut added & print service running.";
-                    MessageBox.Show("ROVI AI Photo Booth installed successfully!\n\n1. 'ROVI Photo Booth' shortcut added to Desktop.\n2. Background print engine is active & configured for startup.", "Installation Complete", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    status.Text = "Setup Complete! Desktop shortcut added & print service installed.";
+                    MessageBox.Show("ROVI AI Photo Booth installed successfully!\n\n✅ 'ROVI Photo Booth' shortcut added to Desktop.\n✅ Print engine installed as a permanent Windows Service.\n   It will auto-start every time this PC turns on!", "Installation Complete", MessageBoxButtons.OK, MessageBoxIcon.Information);
                     form.Close();
                 } catch (Exception ex) {
                     MessageBox.Show("Setup error: " + ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
