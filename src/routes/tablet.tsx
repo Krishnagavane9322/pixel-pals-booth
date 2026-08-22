@@ -474,8 +474,12 @@ function TabletRemote() {
     const runSignalPoll = async () => {
       while (active && signalPolling) {
         try {
+          if (tabletPeerRef.current?.connectionState === "connected") {
+            await new Promise((r) => setTimeout(r, 2500));
+            continue;
+          }
           const res = await fetch(`/api/signal?channel=${encodeURIComponent(channel)}&since=${lastSignalTs}`);
-          if (!res.ok || !active) { await new Promise((r) => setTimeout(r, 300)); continue; }
+          if (!res.ok || !active) { await new Promise((r) => setTimeout(r, 500)); continue; }
           const json = await res.json();
           if (json.success && Array.isArray(json.signals)) {
             for (const item of json.signals) {
@@ -485,7 +489,7 @@ function TabletRemote() {
             }
           }
         } catch { /* transient errors are fine */ }
-        await new Promise((r) => setTimeout(r, 300));
+        await new Promise((r) => setTimeout(r, 500));
       }
     };
     runSignalPoll();
@@ -618,13 +622,21 @@ function TabletRemote() {
     if (isPrinting) return;
     setIsPrinting(true);
 
+    let printData = stripUrl;
+    if (!printData && currentStripId) {
+      try {
+        const res = await getStripData({ data: currentStripId });
+        if (res?.success && res.dataUrl) printData = res.dataUrl;
+      } catch {}
+    }
+
     // 1. Send direct print request to Nitro server API (/api/print)
     fetch("/api/print", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         id: currentStripId,
-        dataUrl: stripUrl,
+        dataUrl: printData,
         printerName: settings.printerName || "DS-RX1",
         printLayout,
       }),
@@ -648,13 +660,23 @@ function TabletRemote() {
   };
 
   const handleRetake = () => {
-    dismissedStripIdRef.current = null;
-    triggerEvent("START_CAPTURE");
-
-    setState("camera");
+    if (currentStripId) {
+      dismissedStripIdRef.current = currentStripId;
+    }
+    setCurrentStripId(null);
     setStripUrl(null);
     setQr(null);
     setShowQR(false);
+    setState("camera");
+
+    // Immediately post screen: camera to /api/session so sync polling doesn't pull old strip preview back
+    fetch(`/api/session?channel=${encodeURIComponent(channel)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ screen: "camera", stripId: null, action: "start" }),
+    }).catch(() => {});
+
+    triggerEvent("START_CAPTURE");
   };
 
   const handleDownload = async () => {

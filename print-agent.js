@@ -37,10 +37,15 @@ if (Test-Path $filePath) {
         $installed = [System.Drawing.Printing.PrinterSettings]::InstalledPrinters
         $foundPrinter = $null
         foreach ($p in $installed) {
-            if ($p -eq $targetPrinter -or $p -like "*$targetPrinter*" -or $p -like "*DS-RX1*" -or $p -like "*RX1*") {
+            if ($p -eq $targetPrinter -or $p -like "*$targetPrinter*" -or $p -like "*DS-RX1*" -or $p -like "*RX1*" -or $p -like "*DNP*" -or $p -like "*Photo*") {
                 $foundPrinter = $p
                 break
             }
+        }
+        if (-not $foundPrinter) {
+            try {
+                $foundPrinter = (New-Object System.Drawing.Printing.PrintDocument).PrinterSettings.PrinterName
+            } catch {}
         }
         
         if ($foundPrinter) {
