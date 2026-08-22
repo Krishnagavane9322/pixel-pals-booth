@@ -1142,54 +1142,7 @@ function Preview({
     setIsPrinting(true);
     speak("Thank you! Printing your photo strip now.", settings.enableVoice !== false);
 
-    let printDataUrl = strip.dataUrl;
-
-    if (settings.printLayout !== "4x6") {
-      // 1. Create a temporary image to load the single strip base64 content
-      const img = new Image();
-      await new Promise<void>((resolve) => {
-        img.onload = () => resolve();
-        img.onerror = () => resolve();
-        if (img.complete) { resolve(); return; }
-        setTimeout(resolve, 1000);
-        img.src = strip.dataUrl;
-      });
-
-      // 2. Create a 6x4 inch canvas at 300 DPI (1800x1200 px) for landscape printing
-      const canvas = document.createElement("canvas");
-      canvas.width = 1800;
-      canvas.height = 1200;
-      const ctx = canvas.getContext("2d")!;
-
-      // 3. Fill canvas background with solid white
-      ctx.fillStyle = "#ffffff";
-      ctx.fillRect(0, 0, 1800, 1200);
-
-      // 4. Draw first copy (top half) rotated 90 degrees counter-clockwise
-      ctx.save();
-      ctx.translate(0, 600);
-      ctx.rotate(-Math.PI / 2);
-      ctx.drawImage(img, 0, 0, img.width, img.height);
-      ctx.restore();
-
-      // 5. Draw second copy (bottom half) rotated 90 degrees counter-clockwise
-      ctx.save();
-      ctx.translate(0, 1200);
-      ctx.rotate(-Math.PI / 2);
-      ctx.drawImage(img, 0, 0, img.width, img.height);
-      ctx.restore();
-
-      // 6. Draw dashed cut line in the middle (y = 600 px)
-      ctx.setLineDash([16, 12]);
-      ctx.strokeStyle = "rgba(180, 180, 180, 0.8)";
-      ctx.lineWidth = 4;
-      ctx.beginPath();
-      ctx.moveTo(0, 600);
-      ctx.lineTo(1800, 600);
-      ctx.stroke();
-
-      printDataUrl = canvas.toDataURL("image/jpeg", 0.94);
-    }
+    const printDataUrl = strip.dataUrl;
 
     let printedLocally = false;
 

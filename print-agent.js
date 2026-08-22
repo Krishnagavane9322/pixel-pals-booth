@@ -123,34 +123,28 @@ if (Test-Path $filePath) {
 // Poll /api/session for print action, then fetch strip image from /api/strip by ID
 
 async function fetchJson(url) {
-  return new Promise((resolve) => {
-    const client = url.startsWith('https') ? https : http;
-    client.get(url, (res) => {
-      let raw = '';
-      res.on('data', (chunk) => { raw += chunk; });
-      res.on('end', () => {
-        try { resolve(JSON.parse(raw)); } catch { resolve(null); }
-      });
-    }).on('error', () => resolve(null));
-  });
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  }
 }
 
 async function downloadImageAsDataUrl(url) {
-  return new Promise((resolve) => {
-    const client = url.startsWith('https') ? https : http;
-    client.get(url, (res) => {
-      const chunks = [];
-      res.on('data', (chunk) => chunks.push(chunk));
-      res.on('end', () => {
-        try {
-          const buffer = Buffer.concat(chunks);
-          const b64 = buffer.toString('base64');
-          const mime = res.headers['content-type'] || 'image/jpeg';
-          resolve(`data:${mime};base64,${b64}`);
-        } catch { resolve(null); }
-      });
-    }).on('error', () => resolve(null));
-  });
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    const arrayBuffer = await res.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+    const b64 = buffer.toString('base64');
+    const mime = res.headers.get('content-type') || 'image/jpeg';
+    return `data:${mime};base64,${b64}`;
+  } catch (err) {
+    console.warn('[Print Agent] Download image error:', err.message);
+    return null;
+  }
 }
 
 async function pollForPrintJobs() {
