@@ -23,15 +23,13 @@ If you want the photo booth to open automatically whenever you power on the lapt
 3. Copy a shortcut of **`start-booth-silent.vbs`** into that Startup folder.
 4. **Done!** Whenever you turn on the laptop, the photo booth and printer engine start automatically.
 
----
-
 ## 📱 Tablet / Remote Setup for Guests
 
 1. Open Safari or Chrome on your iPad/Tablet and go to:
    ```
    https://pixel-pals-booth.vercel.app/tablet
    ```
-   *(Or scan the QR code displayed on the Laptop's Admin screen)*.
+   _(Or scan the QR code displayed on the Laptop's Admin screen)_.
 2. Guests tap **TOUCH TO START** on the Tablet.
 3. When guests tap **Print Photo**, prints are spooled directly to your **DNP DS-RX1 printer** silently in <1 second!
 
