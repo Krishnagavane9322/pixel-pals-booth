@@ -79,8 +79,6 @@ $targetPrinter = '${safePrinterName}'
 
 if (Test-Path $filePath) {
     try {
-        $srcImg = [System.Drawing.Image]::FromFile($filePath)
-        
         $installed = [System.Drawing.Printing.PrinterSettings]::InstalledPrinters
         $foundPrinter = $null
         foreach ($p in $installed) {
@@ -100,61 +98,47 @@ if (Test-Path $filePath) {
             $pd.PrinterSettings.PrinterName = $foundPrinter
             $pd.DefaultPageSettings.Landscape = $true
             $pd.DefaultPageSettings.Margins = New-Object System.Drawing.Printing.Margins(0, 0, 0, 0)
-            
-            $isLandscape = $srcImg.Width -gt $srcImg.Height
-            
-            if ($isLandscape) {
-                $pd.add_PrintPage({
-                    param($sender, $e)
+
+            $pd.add_PrintPage({
+                param($sender, $e)
+                try {
+                    $img = [System.Drawing.Image]::FromFile($filePath)
                     $e.Graphics.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
                     $e.Graphics.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::HighQuality
                     $e.Graphics.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
-                    $rect = New-Object System.Drawing.Rectangle(0, 0, $e.PageBounds.Width, $e.PageBounds.Height)
-                    $e.Graphics.DrawImage($srcImg, $rect)
-                })
-                $pd.add_EndPrint({
-                    param($sender, $e)
-                    if ($srcImg) { $srcImg.Dispose() }
-                })
-                $pd.Print()
-            } else {
-                $bmp = New-Object System.Drawing.Bitmap(1800, 1200)
-                $g = [System.Drawing.Graphics]::FromImage($bmp)
-                $g.Clear([System.Drawing.Color]::White)
-                $g.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
-                $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::HighQuality
-                
-                $g.TranslateTransform(0, 1200)
-                $g.RotateTransform(-90)
-                $g.DrawImage($srcImg, 0, 0, 1200, 900)
-                $g.ResetTransform()
-                
-                $g.TranslateTransform(900, 1200)
-                $g.RotateTransform(-90)
-                $g.DrawImage($srcImg, 0, 0, 1200, 900)
-                $g.ResetTransform()
-                
-                $pen = New-Object System.Drawing.Pen([System.Drawing.Color]::LightGray, 3)
-                $pen.DashStyle = [System.Drawing.Drawing2D.DashStyle]::Dash
-                $g.DrawLine($pen, 900, 0, 900, 1200)
-                $pen.Dispose()
-                $g.Dispose()
-                
-                $pd.add_PrintPage({
-                    param($sender, $e)
-                    $e.Graphics.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
-                    $e.Graphics.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::HighQuality
-                    $e.Graphics.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
-                    $rect = New-Object System.Drawing.Rectangle(0, 0, $e.PageBounds.Width, $e.PageBounds.Height)
-                    $e.Graphics.DrawImage($bmp, $rect)
-                })
-                $pd.add_EndPrint({
-                    param($sender, $e)
-                    if ($bmp) { $bmp.Dispose() }
-                    if ($srcImg) { $srcImg.Dispose() }
-                })
-                $pd.Print()
-            }
+
+                    $w = $e.PageBounds.Width
+                    $h = $e.PageBounds.Height
+
+                    if ($img.Width -gt $img.Height) {
+                        # Landscape photo strip -- draw to full 4x6 page
+                        $rect = New-Object System.Drawing.Rectangle(0, 0, $w, $h)
+                        $e.Graphics.DrawImage($img, $rect)
+                    } else {
+                        # Portrait photo strip -- draw 2 copies side-by-side (2x6 double strip on 4x6 paper)
+                        $halfW = [int]($w / 2)
+
+                        # Draw left copy
+                        $leftRect = New-Object System.Drawing.Rectangle(0, 0, $halfW, $h)
+                        $e.Graphics.DrawImage($img, $leftRect)
+
+                        # Draw right copy
+                        $rightRect = New-Object System.Drawing.Rectangle($halfW, 0, $halfW, $h)
+                        $e.Graphics.DrawImage($img, $rightRect)
+
+                        # Draw subtle dashed cut line in center
+                        $pen = New-Object System.Drawing.Pen([System.Drawing.Color]::LightGray, 2)
+                        $pen.DashStyle = [System.Drawing.Drawing2D.DashStyle]::Dash
+                        $e.Graphics.DrawLine($pen, $halfW, 0, $halfW, $h)
+                        $pen.Dispose()
+                    }
+                    $img.Dispose()
+                } catch {
+                    Write-Error $_
+                }
+            })
+
+            $pd.Print()
         }
     } catch {
         Write-Error $_
