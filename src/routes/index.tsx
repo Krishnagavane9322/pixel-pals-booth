@@ -86,11 +86,11 @@ function Kiosk() {
   // ── Persist kiosk state to /api/session so tablet can poll it ───────────────
   // This is the reliable fallback when SSE events are lost (Vercel Serverless
   // cold-start isolation). The tablet polls /api/session every second.
-  const postSessionState = (screen: Screen, stripId: string | null, action?: string | null) => {
+  const postSessionState = (screen: Screen, stripId: string | null, action?: string | null, stripDataUrl?: string | null) => {
     fetch(`/api/session?channel=${encodeURIComponent(channel)}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ screen, stripId, action: action || null }),
+      body: JSON.stringify({ screen, stripId, action: action || null, stripDataUrl: stripDataUrl || null }),
     }).catch(() => {});
   };
 
@@ -310,8 +310,8 @@ function Kiosk() {
     // 3. Save locally in browser localStorage (guarded against QuotaExceededError)
     saveStrip({ id, dataUrl, createdAt: Date.now(), eventName: s.eventName });
 
-    // 4. Update /api/session so tablet knows the strip is ready
-    postSessionState("preview", id);
+    // 4. Update /api/session so tablet knows the strip is ready & print agent can poll image directly
+    postSessionState("preview", id, null, dataUrl);
 
     // 5. Background upload to Nitro API (/api/strip) — non-blocking
     uploadStripToApi(id, dataUrl).catch((err) =>

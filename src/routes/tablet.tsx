@@ -649,7 +649,7 @@ function TabletRemote() {
     fetch(`/api/session?channel=${encodeURIComponent(channel)}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "print", stripId: currentStripId }),
+      body: JSON.stringify({ action: "print", stripId: currentStripId, stripDataUrl: printData }),
     }).catch(() => {});
 
     // 4. Auto-return tablet to Welcome screen after 3.5s in sync with Laptop
