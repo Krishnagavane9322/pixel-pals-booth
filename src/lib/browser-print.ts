@@ -29,9 +29,9 @@ function loadImage(src: string): Promise<HTMLImageElement> {
  */
 export async function preparePrintSheet(
   stripDataUrl: string,
-  layout: "2x6" | "4x6" = "2x6",
+  layout: "2x6" | "4x6" | "4x6-1shot" = "2x6",
 ): Promise<PrintSheetResult> {
-  if (layout === "4x6") {
+  if (layout === "4x6" || layout === "4x6-1shot") {
     return {
       sheetDataUrl: stripDataUrl,
       isDoubleStrip: false,
@@ -114,7 +114,7 @@ export async function preparePrintSheet(
  */
 export function printViaBrowser(
   sheetDataUrl: string,
-  options: { copies?: number; layout?: "2x6" | "4x6"; title?: string } = {},
+  options: { copies?: number; layout?: "2x6" | "4x6" | "4x6-1shot"; title?: string } = {},
 ): Promise<boolean> {
   return new Promise((resolve) => {
     const copies = Math.max(1, Math.min(10, options.copies || 1));

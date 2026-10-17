@@ -14,7 +14,7 @@ export default defineEventHandler(async (event) => {
       id?: string;
       dataUrl?: string;
       printerName?: string;
-      printLayout?: "2x6" | "4x6";
+      printLayout?: "2x6" | "4x6" | "4x6-1shot";
       copies?: number;
     };
 

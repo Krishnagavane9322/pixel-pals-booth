@@ -17,7 +17,7 @@ export type Settings = {
   tint: number;
   photoZoom: number;
   theme: "cyberpunk" | "floral" | "garba-midnight" | "garba-crimson";
-  printLayout: "2x6" | "4x6";
+  printLayout: "2x6" | "4x6" | "4x6-1shot";
   enableVoice: boolean;
 
   // Event Name Typography & Placement
@@ -47,20 +47,29 @@ export type Settings = {
   datePlacementY: number; // Vertical offset (-100 to +100px)
   datePlacementX: number; // Horizontal offset (-100 to +100px)
 
-  // Logo Placement & Size
-  logoSize: number; // Height in px (20 to 120, 0 = auto)
-  logoPlacementY: number; // Vertical offset (-100 to +100px)
-  logoPlacementX: number; // Horizontal offset (-100 to +100px)
+  // Logo Placement, Sizing & Zoom Adjustments
+  logoSize: number; // Base height in px (20 to 250, 0 = auto)
+  logoScale: number; // Zoom / Scale factor (0.3 to 3.0, default 1.0)
+  logoPlacementY: number; // Vertical offset (-250 to +250px)
+  logoPlacementX: number; // Horizontal offset (-400 to +400px)
+  logoRotation: number; // Rotation in degrees (-45 to +45)
+  logoOpacity: number; // Opacity (0.1 to 1.0, default 1.0)
+  logoBorderRadius: number; // Corner radius (0 to 50px)
 
   // Photo Strip Layout & Dimensions
-  photoScale: number; // Scale factor (0.8 to 1.5, default 1.0)
-  photoMarginTop: number; // Top padding of photos area (-80 to +100px)
-  photoMarginSide: number; // Side margins (-50 to +50px)
-  photoGapY: number; // Vertical gap between photos (-20 to 60px)
+  photoScale: number; // Scale factor (0.7 to 2.0, default 1.0)
+  photoMarginTop: number; // Top padding of photos area (-120 to +120px)
+  photoMarginSide: number; // Side margins (-60 to +60px)
+  photoGapY: number; // Vertical gap between photos (-40 to 60px)
   photoBorderRadius: number; // Corner radius (0 to 40px)
   photoBorderWidth: number; // Border width (0 to 16px)
   photoBorderColor: string; // Custom border color
-  footerHeight: number; // Footer area height (100 to 350px, 0 = auto)
+  footerHeight: number; // Footer area height (80 to 350px, 0 = auto)
+
+  // Strip Photo Box Sizing & Adjustments
+  stripPhotoWidth: number; // Custom box width in px (0 = default/auto, 350 to 590px)
+  stripPhotoHeight: number; // Custom box height in px (0 = default/auto, 250 to 520px)
+  stripBoxPreset: "classic" | "large" | "grand" | "max" | "custom";
 };
 
 const DEFAULTS: Settings = {
@@ -110,8 +119,12 @@ const DEFAULTS: Settings = {
   datePlacementX: 0,
 
   logoSize: 0,
+  logoScale: 1.0,
   logoPlacementY: 0,
   logoPlacementX: 0,
+  logoRotation: 0,
+  logoOpacity: 1.0,
+  logoBorderRadius: 0,
 
   photoScale: 1.0,
   photoMarginTop: 0,
@@ -121,6 +134,10 @@ const DEFAULTS: Settings = {
   photoBorderWidth: 0,
   photoBorderColor: "",
   footerHeight: 0,
+
+  stripPhotoWidth: 0,
+  stripPhotoHeight: 0,
+  stripBoxPreset: "classic",
 };
 
 const SETTINGS_KEY = "rovi.settings";

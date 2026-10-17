@@ -44,7 +44,7 @@ export function PrintModal({
   const [autoCloseTimer, setAutoCloseTimer] = useState<number | null>(null);
 
   const isFloral = settings.theme === "floral";
-  const is4x6 = settings.printLayout === "4x6";
+  const is4x6 = settings.printLayout === "4x6" || settings.printLayout === "4x6-1shot";
   const printerName = settings.printerName || "DS-RX1";
 
   // Prepare the printable sheet whenever the modal opens or strip changes

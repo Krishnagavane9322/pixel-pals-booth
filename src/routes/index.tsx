@@ -1085,7 +1085,8 @@ function CameraScreen({
 
     (async () => {
       await wait(600); // brief "Get Ready" moment
-      const numShots = settings.printLayout === "4x6" ? 4 : 3;
+      const numShots =
+        settings.printLayout === "4x6-1shot" ? 1 : settings.printLayout === "4x6" ? 4 : 3;
       for (let i = 0; i < numShots; i++) {
         if (cancelled) return;
         setShotIdx(i);
@@ -1128,6 +1129,9 @@ function CameraScreen({
     };
   }, [ready, settings.countdownTime, settings.photoGap, onDone]);
 
+  const numShots =
+    settings.printLayout === "4x6-1shot" ? 1 : settings.printLayout === "4x6" ? 4 : 3;
+
   return (
     <motion.div
       initial={{ opacity: 0 }}
@@ -1137,7 +1141,7 @@ function CameraScreen({
     >
       <div className="flex items-center justify-between p-4">
         <div className="text-sm tracking-widest text-muted-foreground">
-          PHOTO {shotIdx + 1} / {settings.printLayout === "4x6" ? 4 : 3}
+          PHOTO {shotIdx + 1} / {numShots}
         </div>
         <button onClick={onCancel} className="p-2 rounded-full bg-card/60 border border-border">
           <X />
@@ -1203,7 +1207,7 @@ function CameraScreen({
           {count === null ? "Get Ready" : "Smile!"}
         </motion.div>
         <div className="mt-2 flex justify-center gap-2">
-          {Array.from({ length: settings.printLayout === "4x6" ? 4 : 3 }).map((_, i) => (
+          {Array.from({ length: numShots }).map((_, i) => (
             <div
               key={i}
               className={`h-2 w-10 rounded-full transition ${

@@ -10,11 +10,11 @@ function getTypography(
   type: "eventName" | "watermark",
   settings: Settings,
   theme: Settings["theme"],
-  layout: "2x6" | "4x6",
+  layout: "2x6" | "4x6" | "4x6-1shot",
 ) {
   const isFloral = theme === "floral";
   const isGarba = theme === "garba-midnight" || theme === "garba-crimson";
-  const is4x6 = layout === "4x6";
+  const is4x6 = layout === "4x6" || layout === "4x6-1shot";
 
   if (type === "eventName") {
     let color = settings.eventNameColor;
@@ -166,8 +166,67 @@ function drawCoverWithRadius(
   }
 }
 
+async function drawEventLogo(
+  ctx: CanvasRenderingContext2D,
+  settings: Settings,
+  baseX: number,
+  baseY: number,
+  defaultHeight: number,
+) {
+  if (!settings.logoDataUrl) return;
+  try {
+    const logo = await loadImg(settings.logoDataUrl);
+    if (!logo || !logo.width || !logo.height) return;
+
+    const baseH = settings.logoSize || defaultHeight;
+    const scale = settings.logoScale || 1.0;
+    const lh = Math.round(baseH * scale);
+    const lw = Math.round((logo.width / logo.height) * lh);
+
+    const lx = Math.round(baseX - lw / 2 + (settings.logoPlacementX || 0));
+    const ly = Math.round(baseY + (settings.logoPlacementY || 0));
+
+    ctx.save();
+
+    // Opacity
+    if (
+      settings.logoOpacity !== undefined &&
+      settings.logoOpacity !== null &&
+      settings.logoOpacity < 1.0
+    ) {
+      ctx.globalAlpha = Math.max(0.05, Math.min(1.0, settings.logoOpacity));
+    }
+
+    // Rotation around logo center
+    if (settings.logoRotation) {
+      const cx = lx + lw / 2;
+      const cy = ly + lh / 2;
+      ctx.translate(cx, cy);
+      ctx.rotate((settings.logoRotation * Math.PI) / 180);
+      ctx.translate(-cx, -cy);
+    }
+
+    // Border radius / clip if set
+    if (settings.logoBorderRadius && settings.logoBorderRadius > 0) {
+      ctx.beginPath();
+      if (typeof (ctx as any).roundRect === "function") {
+        (ctx as any).roundRect(lx, ly, lw, lh, settings.logoBorderRadius);
+      } else {
+        ctx.rect(lx, ly, lw, lh);
+      }
+      ctx.clip();
+    }
+
+    ctx.drawImage(logo, lx, ly, lw, lh);
+    ctx.restore();
+  } catch (err) {
+    console.warn("[Strip] Error drawing logo:", err);
+  }
+}
+
 export async function buildStrip(photos: string[], settings: Settings): Promise<string> {
-  const is4x6 = settings.printLayout === "4x6";
+  const is4x6 = settings.printLayout === "4x6" || settings.printLayout === "4x6-1shot";
+  const is1Shot = settings.printLayout === "4x6-1shot";
   const canvas = document.createElement("canvas");
   canvas.width = is4x6 ? 1800 : STRIP_W;
   canvas.height = is4x6 ? 1200 : STRIP_H;
@@ -262,346 +321,618 @@ export async function buildStrip(photos: string[], settings: Settings): Promise<
   }
 
   if (is4x6) {
-    // --- 4x6 Layout ---
-    const scale = settings.photoScale || 1.0;
-    const baseColW = 840;
-    const baseRowH = 480;
-    const colW = Math.round(baseColW * scale - (settings.photoMarginSide || 0) * 2);
-    const rowH = Math.round(baseRowH * scale);
-    const startX = 40 + (settings.photoMarginSide || 0);
-    const gapX = 40;
-    const startY = 40 + (settings.photoMarginTop || 0);
-    const gapY = 40 + (settings.photoGapY || 0);
+    if (is1Shot) {
+      // --- 4x6 Single Photo (1 Shot) Layout ---
+      const footerH = settings.footerHeight || 160;
+      const footerY = 1200 - footerH;
+      const photosAreaH = footerY;
+      const scale = settings.photoScale || 1.0;
 
-    for (let i = 0; i < 4; i++) {
-      const col = i % 2;
-      const row = Math.floor(i / 2);
-      const dx = startX + col * (colW + gapX);
-      const dy = startY + row * (rowH + gapY);
+      const baseW = 1620;
+      const baseH = 940;
+      const photoW = Math.min(
+        1760,
+        Math.max(800, Math.round(baseW * scale - (settings.photoMarginSide || 0) * 2)),
+      );
+      const photoH = Math.min(photosAreaH - 30, Math.max(450, Math.round(baseH * scale)));
+      const photoX = Math.round((1800 - photoW) / 2);
+      const photoY = Math.max(
+        20,
+        Math.round((photosAreaH - photoH) / 2 + (settings.photoMarginTop || 0)),
+      );
 
-      const img = imgs[i] || imgs[0]; // fallback if less than 4 photos
-      if (!img) continue;
+      const heroImg = imgs[0];
+      if (heroImg) {
+        if (isGarba) {
+          drawCoverWithRadius(
+            ctx,
+            heroImg,
+            photoX,
+            photoY,
+            photoW,
+            photoH,
+            settings.photoZoom,
+            settings.photoBorderRadius ?? 14,
+            settings.photoBorderWidth || 8,
+            settings.photoBorderColor || "#d4af37",
+          );
 
+          // Inner golden metallic bevel highlight
+          if (!settings.photoBorderWidth) {
+            ctx.save();
+            ctx.strokeStyle = "#fff275";
+            ctx.lineWidth = 2;
+            ctx.strokeRect(photoX + 2, photoY + 2, photoW - 4, photoH - 4);
+            ctx.restore();
+          }
+        } else if (isFloral) {
+          drawCoverWithRadius(
+            ctx,
+            heroImg,
+            photoX,
+            photoY,
+            photoW,
+            photoH,
+            settings.photoZoom,
+            settings.photoBorderRadius ?? 16,
+            settings.photoBorderWidth || 8,
+            settings.photoBorderColor || "#ff9ec3",
+          );
+        } else {
+          // Cyberpunk
+          drawCoverWithRadius(
+            ctx,
+            heroImg,
+            photoX,
+            photoY,
+            photoW,
+            photoH,
+            settings.photoZoom,
+            settings.photoBorderRadius ?? 12,
+            settings.photoBorderWidth || 6,
+            settings.photoBorderColor || "rgba(0, 245, 255, 0.6)",
+          );
+        }
+      }
+
+      // Draw 4x6 1-shot Footer
       if (isGarba) {
-        // Draw photo with customizable radius and border
-        drawCoverWithRadius(
+        ctx.save();
+        const footerGrad = ctx.createLinearGradient(0, footerY, 0, footerY + footerH);
+        footerGrad.addColorStop(
+          0,
+          isGarbaCrimson ? "rgba(55, 3, 13, 0.96)" : "rgba(1, 9, 55, 0.96)",
+        );
+        footerGrad.addColorStop(
+          1,
+          isGarbaCrimson ? "rgba(25, 1, 6, 0.98)" : "rgba(1, 4, 25, 0.98)",
+        );
+        ctx.fillStyle = footerGrad;
+        ctx.fillRect(0, footerY, w, footerH);
+
+        const goldTrim = ctx.createLinearGradient(0, 0, w, 0);
+        goldTrim.addColorStop(0, "#d4af37");
+        goldTrim.addColorStop(0.5, "#fff275");
+        goldTrim.addColorStop(1, "#d4af37");
+        ctx.fillStyle = goldTrim;
+        ctx.fillRect(0, footerY, w, 5);
+
+        await drawEventLogo(
           ctx,
-          img,
-          dx,
-          dy,
-          colW,
-          rowH,
-          settings.photoZoom,
-          settings.photoBorderRadius || 0,
-          settings.photoBorderWidth || 7,
-          settings.photoBorderColor || "#d4af37",
+          settings,
+          200,
+          footerY + (footerH - (settings.logoSize || 80) * (settings.logoScale || 1.0)) / 2 + 2,
+          80,
         );
 
-        // Inner golden metallic bevel highlight
-        if (!settings.photoBorderWidth) {
-          ctx.save();
-          ctx.strokeStyle = "#fff275";
-          ctx.lineWidth = 2;
-          ctx.strokeRect(dx + 2, dy + 2, colW - 4, rowH - 4);
-          ctx.restore();
+        if (settings.showDate !== false) {
+          const dateX = 1600 + (settings.datePlacementX || 0);
+          const dateY = footerY + 90 + (settings.datePlacementY || 0);
+          const dateSize = settings.dateFontSize || 18;
+          const dateColor = settings.dateColor || "#ffd700";
+          drawTextWithSettings(
+            ctx,
+            new Date().toLocaleString(undefined, { dateStyle: "medium" }),
+            dateX,
+            dateY,
+            { color: dateColor, font: `600 ${dateSize}px 'Cinzel', Georgia, serif` },
+            "center",
+          );
         }
-      } else if (isFloral) {
-        drawCoverWithRadius(
+
+        const cx = w / 2;
+        const watermarkX = cx + (settings.watermarkPlacementX || 0);
+        const watermarkY = footerY + 55 + (settings.watermarkPlacementY || 0);
+        drawTextWithSettings(
           ctx,
-          img,
-          dx,
-          dy,
-          colW,
-          rowH,
-          settings.photoZoom,
-          settings.photoBorderRadius || 0,
-          settings.photoBorderWidth || 8,
-          settings.photoBorderColor || "#ff9ec3",
+          settings.watermark || "Navratri Dandiya Raas",
+          watermarkX,
+          watermarkY,
+          watermarkStyle,
+          settings.watermarkAlign || "center",
+          settings.watermarkLetterSpacing || 0,
+        );
+
+        const eventNameX = cx + (settings.eventNamePlacementX || 0);
+        const eventNameY = footerY + 115 + (settings.eventNamePlacementY || 0);
+        drawTextWithSettings(
+          ctx,
+          settings.eventName,
+          eventNameX,
+          eventNameY,
+          eventNameStyle,
+          settings.eventNameAlign || "center",
+          settings.eventNameLetterSpacing || 0,
+        );
+        ctx.restore();
+      } else if (isFloral) {
+        await drawEventLogo(
+          ctx,
+          settings,
+          200,
+          footerY + (footerH - (settings.logoSize || 80) * (settings.logoScale || 1.0)) / 2,
+          80,
+        );
+
+        if (settings.showDate !== false) {
+          const dateX = 1600 + (settings.datePlacementX || 0);
+          const dateY = footerY + 90 + (settings.datePlacementY || 0);
+          const dateSize = settings.dateFontSize || 18;
+          const dateColor = settings.dateColor || "#8a756a";
+          drawTextWithSettings(
+            ctx,
+            new Date().toLocaleString(undefined, { dateStyle: "medium" }),
+            dateX,
+            dateY,
+            { color: dateColor, font: `500 ${dateSize}px Georgia, serif` },
+            "center",
+            0,
+            false,
+          );
+        }
+
+        const cx = w / 2;
+        const watermarkX = cx + (settings.watermarkPlacementX || 0);
+        const watermarkY = footerY + 55 + (settings.watermarkPlacementY || 0);
+        drawTextWithSettings(
+          ctx,
+          settings.watermark || "Some Bunny Is Turning One",
+          watermarkX,
+          watermarkY,
+          watermarkStyle,
+          settings.watermarkAlign || "center",
+          settings.watermarkLetterSpacing || 0,
+          false,
+        );
+
+        const eventNameX = cx + (settings.eventNamePlacementX || 0);
+        const eventNameY = footerY + 115 + (settings.eventNamePlacementY || 0);
+        drawTextWithSettings(
+          ctx,
+          settings.eventName,
+          eventNameX,
+          eventNameY,
+          eventNameStyle,
+          settings.eventNameAlign || "center",
+          settings.eventNameLetterSpacing || 0,
+          false,
         );
       } else {
         // Cyberpunk
-        drawCoverWithRadius(
+        ctx.fillStyle = "rgba(11,16,32,0.97)";
+        ctx.fillRect(0, footerY, w, footerH);
+
+        const footerGrad = ctx.createLinearGradient(0, 0, w, 0);
+        footerGrad.addColorStop(0, "#00f5ff");
+        footerGrad.addColorStop(1, "#b44dff");
+        ctx.fillStyle = footerGrad;
+        ctx.fillRect(0, footerY, w, 4);
+
+        await drawEventLogo(
           ctx,
-          img,
-          dx,
-          dy,
-          colW,
-          rowH,
-          settings.photoZoom,
-          settings.photoBorderRadius || 0,
-          settings.photoBorderWidth || 6,
-          settings.photoBorderColor || "rgba(0, 245, 255, 0.5)",
+          settings,
+          200,
+          footerY + (footerH - (settings.logoSize || 80) * (settings.logoScale || 1.0)) / 2 + 2,
+          80,
         );
-      }
-    }
 
-    // Draw 4x6 Footer
-    const footerH = settings.footerHeight || 160;
-    const footerY = 1200 - footerH;
+        if (settings.showDate !== false) {
+          const dateX = 1600 + (settings.datePlacementX || 0);
+          const dateY = footerY + 90 + (settings.datePlacementY || 0);
+          const dateSize = settings.dateFontSize || 20;
+          const dateColor = settings.dateColor || "#c9b8ff";
+          drawTextWithSettings(
+            ctx,
+            new Date().toLocaleString(),
+            dateX,
+            dateY,
+            { color: dateColor, font: `${dateSize}px ui-sans-serif, system-ui, sans-serif` },
+            "center",
+          );
+        }
 
-    if (isGarba) {
-      // Ornate Royal Footer banner
-      ctx.save();
-      const footerGrad = ctx.createLinearGradient(0, footerY, 0, footerY + footerH);
-      footerGrad.addColorStop(
-        0,
-        isGarbaCrimson ? "rgba(55, 3, 13, 0.96)" : "rgba(1, 9, 55, 0.96)",
-      );
-      footerGrad.addColorStop(
-        1,
-        isGarbaCrimson ? "rgba(25, 1, 6, 0.98)" : "rgba(1, 4, 25, 0.98)",
-      );
-      ctx.fillStyle = footerGrad;
-      ctx.fillRect(0, footerY, w, footerH);
-
-      // Gold filigree top trim
-      const goldTrim = ctx.createLinearGradient(0, 0, w, 0);
-      goldTrim.addColorStop(0, "#d4af37");
-      goldTrim.addColorStop(0.5, "#fff275");
-      goldTrim.addColorStop(1, "#d4af37");
-      ctx.fillStyle = goldTrim;
-      ctx.fillRect(0, footerY, w, 5);
-
-      // Logo on left
-      if (settings.logoDataUrl) {
-        try {
-          const logo = await loadImg(settings.logoDataUrl);
-          if (logo) {
-            const lh = settings.logoSize || 80;
-            const lw = (logo.width / logo.height) * lh;
-            const lx = 200 - lw / 2 + (settings.logoPlacementX || 0);
-            const ly = footerY + (footerH - lh) / 2 + 2 + (settings.logoPlacementY || 0);
-            ctx.drawImage(logo, lx, ly, lw, lh);
-          }
-        } catch {}
-      }
-
-      // Date on right
-      if (settings.showDate !== false) {
-        const dateX = 1600 + (settings.datePlacementX || 0);
-        const dateY = footerY + 90 + (settings.datePlacementY || 0);
-        const dateSize = settings.dateFontSize || 18;
-        const dateColor = settings.dateColor || "#ffd700";
+        const cx = w / 2;
+        const watermarkX = cx + (settings.watermarkPlacementX || 0);
+        const watermarkY = footerY + 55 + (settings.watermarkPlacementY || 0);
         drawTextWithSettings(
           ctx,
-          new Date().toLocaleString(undefined, { dateStyle: "medium" }),
-          dateX,
-          dateY,
-          { color: dateColor, font: `600 ${dateSize}px 'Cinzel', Georgia, serif` },
-          "center",
+          settings.watermark || "ROVI AI Photo Booth",
+          watermarkX,
+          watermarkY,
+          watermarkStyle,
+          settings.watermarkAlign || "center",
+          settings.watermarkLetterSpacing || 0,
         );
-      }
 
-      // Centered typography with placement offsets
-      const cx = w / 2;
-      const watermarkX = cx + (settings.watermarkPlacementX || 0);
-      const watermarkY = footerY + 55 + (settings.watermarkPlacementY || 0);
-      drawTextWithSettings(
-        ctx,
-        settings.watermark || "Navratri Dandiya Raas",
-        watermarkX,
-        watermarkY,
-        watermarkStyle,
-        settings.watermarkAlign || "center",
-        settings.watermarkLetterSpacing || 0,
-      );
-
-      const eventNameX = cx + (settings.eventNamePlacementX || 0);
-      const eventNameY = footerY + 115 + (settings.eventNamePlacementY || 0);
-      drawTextWithSettings(
-        ctx,
-        settings.eventName,
-        eventNameX,
-        eventNameY,
-        eventNameStyle,
-        settings.eventNameAlign || "center",
-        settings.eventNameLetterSpacing || 0,
-      );
-      ctx.restore();
-    } else if (isFloral) {
-      if (settings.logoDataUrl) {
-        try {
-          const logo = await loadImg(settings.logoDataUrl);
-          if (logo) {
-            const lh = settings.logoSize || 80;
-            const lw = (logo.width / logo.height) * lh;
-            const lx = 200 - lw / 2 + (settings.logoPlacementX || 0);
-            const ly = footerY + (footerH - lh) / 2 + (settings.logoPlacementY || 0);
-            ctx.drawImage(logo, lx, ly, lw, lh);
-          }
-        } catch {}
-      }
-
-      if (settings.showDate !== false) {
-        const dateX = 1600 + (settings.datePlacementX || 0);
-        const dateY = footerY + 90 + (settings.datePlacementY || 0);
-        const dateSize = settings.dateFontSize || 18;
-        const dateColor = settings.dateColor || "#8a756a";
+        const eventNameX = cx + (settings.eventNamePlacementX || 0);
+        const eventNameY = footerY + 110 + (settings.eventNamePlacementY || 0);
         drawTextWithSettings(
           ctx,
-          new Date().toLocaleString(undefined, { dateStyle: "medium" }),
-          dateX,
-          dateY,
-          { color: dateColor, font: `500 ${dateSize}px Georgia, serif` },
-          "center",
+          settings.eventName,
+          eventNameX,
+          eventNameY,
+          eventNameStyle,
+          settings.eventNameAlign || "center",
+          settings.eventNameLetterSpacing || 0,
+        );
+      }
+    } else {
+      // --- 4x6 Grid Print (4 Shots) Layout ---
+      const scale = settings.photoScale || 1.0;
+      const baseColW = 840;
+      const baseRowH = 480;
+      const colW = Math.round(baseColW * scale - (settings.photoMarginSide || 0) * 2);
+      const rowH = Math.round(baseRowH * scale);
+      const startX = 40 + (settings.photoMarginSide || 0);
+      const gapX = 40;
+      const startY = 40 + (settings.photoMarginTop || 0);
+      const gapY = 40 + (settings.photoGapY || 0);
+
+      for (let i = 0; i < 4; i++) {
+        const col = i % 2;
+        const row = Math.floor(i / 2);
+        const dx = startX + col * (colW + gapX);
+        const dy = startY + row * (rowH + gapY);
+
+        const img = imgs[i] || imgs[0]; // fallback if less than 4 photos
+        if (!img) continue;
+
+        if (isGarba) {
+          drawCoverWithRadius(
+            ctx,
+            img,
+            dx,
+            dy,
+            colW,
+            rowH,
+            settings.photoZoom,
+            settings.photoBorderRadius || 0,
+            settings.photoBorderWidth || 7,
+            settings.photoBorderColor || "#d4af37",
+          );
+
+          if (!settings.photoBorderWidth) {
+            ctx.save();
+            ctx.strokeStyle = "#fff275";
+            ctx.lineWidth = 2;
+            ctx.strokeRect(dx + 2, dy + 2, colW - 4, rowH - 4);
+            ctx.restore();
+          }
+        } else if (isFloral) {
+          drawCoverWithRadius(
+            ctx,
+            img,
+            dx,
+            dy,
+            colW,
+            rowH,
+            settings.photoZoom,
+            settings.photoBorderRadius || 0,
+            settings.photoBorderWidth || 8,
+            settings.photoBorderColor || "#ff9ec3",
+          );
+        } else {
+          // Cyberpunk
+          drawCoverWithRadius(
+            ctx,
+            img,
+            dx,
+            dy,
+            colW,
+            rowH,
+            settings.photoZoom,
+            settings.photoBorderRadius || 0,
+            settings.photoBorderWidth || 6,
+            settings.photoBorderColor || "rgba(0, 245, 255, 0.5)",
+          );
+        }
+      }
+
+      // Draw 4x6 Grid Footer
+      const footerH = settings.footerHeight || 160;
+      const footerY = 1200 - footerH;
+
+      if (isGarba) {
+        ctx.save();
+        const footerGrad = ctx.createLinearGradient(0, footerY, 0, footerY + footerH);
+        footerGrad.addColorStop(
           0,
+          isGarbaCrimson ? "rgba(55, 3, 13, 0.96)" : "rgba(1, 9, 55, 0.96)",
+        );
+        footerGrad.addColorStop(
+          1,
+          isGarbaCrimson ? "rgba(25, 1, 6, 0.98)" : "rgba(1, 4, 25, 0.98)",
+        );
+        ctx.fillStyle = footerGrad;
+        ctx.fillRect(0, footerY, w, footerH);
+
+        const goldTrim = ctx.createLinearGradient(0, 0, w, 0);
+        goldTrim.addColorStop(0, "#d4af37");
+        goldTrim.addColorStop(0.5, "#fff275");
+        goldTrim.addColorStop(1, "#d4af37");
+        ctx.fillStyle = goldTrim;
+        ctx.fillRect(0, footerY, w, 5);
+
+        await drawEventLogo(
+          ctx,
+          settings,
+          200,
+          footerY + (footerH - (settings.logoSize || 80) * (settings.logoScale || 1.0)) / 2 + 2,
+          80,
+        );
+
+        if (settings.showDate !== false) {
+          const dateX = 1600 + (settings.datePlacementX || 0);
+          const dateY = footerY + 90 + (settings.datePlacementY || 0);
+          const dateSize = settings.dateFontSize || 18;
+          const dateColor = settings.dateColor || "#ffd700";
+          drawTextWithSettings(
+            ctx,
+            new Date().toLocaleString(undefined, { dateStyle: "medium" }),
+            dateX,
+            dateY,
+            { color: dateColor, font: `600 ${dateSize}px 'Cinzel', Georgia, serif` },
+            "center",
+          );
+        }
+
+        const cx = w / 2;
+        const watermarkX = cx + (settings.watermarkPlacementX || 0);
+        const watermarkY = footerY + 55 + (settings.watermarkPlacementY || 0);
+        drawTextWithSettings(
+          ctx,
+          settings.watermark || "Navratri Dandiya Raas",
+          watermarkX,
+          watermarkY,
+          watermarkStyle,
+          settings.watermarkAlign || "center",
+          settings.watermarkLetterSpacing || 0,
+        );
+
+        const eventNameX = cx + (settings.eventNamePlacementX || 0);
+        const eventNameY = footerY + 115 + (settings.eventNamePlacementY || 0);
+        drawTextWithSettings(
+          ctx,
+          settings.eventName,
+          eventNameX,
+          eventNameY,
+          eventNameStyle,
+          settings.eventNameAlign || "center",
+          settings.eventNameLetterSpacing || 0,
+        );
+        ctx.restore();
+      } else if (isFloral) {
+        await drawEventLogo(
+          ctx,
+          settings,
+          200,
+          footerY + (footerH - (settings.logoSize || 80) * (settings.logoScale || 1.0)) / 2,
+          80,
+        );
+
+        if (settings.showDate !== false) {
+          const dateX = 1600 + (settings.datePlacementX || 0);
+          const dateY = footerY + 90 + (settings.datePlacementY || 0);
+          const dateSize = settings.dateFontSize || 18;
+          const dateColor = settings.dateColor || "#8a756a";
+          drawTextWithSettings(
+            ctx,
+            new Date().toLocaleString(undefined, { dateStyle: "medium" }),
+            dateX,
+            dateY,
+            { color: dateColor, font: `500 ${dateSize}px Georgia, serif` },
+            "center",
+            0,
+            false,
+          );
+        }
+
+        const cx = w / 2;
+        const watermarkX = cx + (settings.watermarkPlacementX || 0);
+        const watermarkY = footerY + 55 + (settings.watermarkPlacementY || 0);
+        drawTextWithSettings(
+          ctx,
+          settings.watermark || "Some Bunny Is Turning One",
+          watermarkX,
+          watermarkY,
+          watermarkStyle,
+          settings.watermarkAlign || "center",
+          settings.watermarkLetterSpacing || 0,
           false,
         );
-      }
 
-      const cx = w / 2;
-      const watermarkX = cx + (settings.watermarkPlacementX || 0);
-      const watermarkY = footerY + 55 + (settings.watermarkPlacementY || 0);
-      drawTextWithSettings(
-        ctx,
-        settings.watermark || "Some Bunny Is Turning One",
-        watermarkX,
-        watermarkY,
-        watermarkStyle,
-        settings.watermarkAlign || "center",
-        settings.watermarkLetterSpacing || 0,
-        false,
-      );
-
-      const eventNameX = cx + (settings.eventNamePlacementX || 0);
-      const eventNameY = footerY + 115 + (settings.eventNamePlacementY || 0);
-      drawTextWithSettings(
-        ctx,
-        settings.eventName,
-        eventNameX,
-        eventNameY,
-        eventNameStyle,
-        settings.eventNameAlign || "center",
-        settings.eventNameLetterSpacing || 0,
-        false,
-      );
-    } else {
-      // Cyberpunk footer
-      ctx.fillStyle = "rgba(11,16,32,0.97)";
-      ctx.fillRect(0, footerY, w, footerH);
-
-      const footerGrad = ctx.createLinearGradient(0, 0, w, 0);
-      footerGrad.addColorStop(0, "#00f5ff");
-      footerGrad.addColorStop(1, "#b44dff");
-      ctx.fillStyle = footerGrad;
-      ctx.fillRect(0, footerY, w, 4);
-
-      if (settings.logoDataUrl) {
-        try {
-          const logo = await loadImg(settings.logoDataUrl);
-          if (logo) {
-            const lh = settings.logoSize || 80;
-            const lw = (logo.width / logo.height) * lh;
-            const lx = 200 - lw / 2 + (settings.logoPlacementX || 0);
-            const ly = footerY + (footerH - lh) / 2 + 2 + (settings.logoPlacementY || 0);
-            ctx.drawImage(logo, lx, ly, lw, lh);
-          }
-        } catch {}
-      }
-
-      if (settings.showDate !== false) {
-        const dateX = 1600 + (settings.datePlacementX || 0);
-        const dateY = footerY + 90 + (settings.datePlacementY || 0);
-        const dateSize = settings.dateFontSize || 20;
-        const dateColor = settings.dateColor || "#c9b8ff";
+        const eventNameX = cx + (settings.eventNamePlacementX || 0);
+        const eventNameY = footerY + 115 + (settings.eventNamePlacementY || 0);
         drawTextWithSettings(
           ctx,
-          new Date().toLocaleString(),
-          dateX,
-          dateY,
-          { color: dateColor, font: `${dateSize}px ui-sans-serif, system-ui, sans-serif` },
-          "center",
+          settings.eventName,
+          eventNameX,
+          eventNameY,
+          eventNameStyle,
+          settings.eventNameAlign || "center",
+          settings.eventNameLetterSpacing || 0,
+          false,
+        );
+      } else {
+        // Cyberpunk
+        ctx.fillStyle = "rgba(11,16,32,0.97)";
+        ctx.fillRect(0, footerY, w, footerH);
+
+        const footerGrad = ctx.createLinearGradient(0, 0, w, 0);
+        footerGrad.addColorStop(0, "#00f5ff");
+        footerGrad.addColorStop(1, "#b44dff");
+        ctx.fillStyle = footerGrad;
+        ctx.fillRect(0, footerY, w, 4);
+
+        await drawEventLogo(
+          ctx,
+          settings,
+          200,
+          footerY + (footerH - (settings.logoSize || 80) * (settings.logoScale || 1.0)) / 2 + 2,
+          80,
+        );
+
+        if (settings.showDate !== false) {
+          const dateX = 1600 + (settings.datePlacementX || 0);
+          const dateY = footerY + 90 + (settings.datePlacementY || 0);
+          const dateSize = settings.dateFontSize || 20;
+          const dateColor = settings.dateColor || "#c9b8ff";
+          drawTextWithSettings(
+            ctx,
+            new Date().toLocaleString(),
+            dateX,
+            dateY,
+            { color: dateColor, font: `${dateSize}px ui-sans-serif, system-ui, sans-serif` },
+            "center",
+          );
+        }
+
+        const cx = w / 2;
+        const watermarkX = cx + (settings.watermarkPlacementX || 0);
+        const watermarkY = footerY + 55 + (settings.watermarkPlacementY || 0);
+        drawTextWithSettings(
+          ctx,
+          settings.watermark || "ROVI AI Photo Booth",
+          watermarkX,
+          watermarkY,
+          watermarkStyle,
+          settings.watermarkAlign || "center",
+          settings.watermarkLetterSpacing || 0,
+        );
+
+        const eventNameX = cx + (settings.eventNamePlacementX || 0);
+        const eventNameY = footerY + 110 + (settings.eventNamePlacementY || 0);
+        drawTextWithSettings(
+          ctx,
+          settings.eventName,
+          eventNameX,
+          eventNameY,
+          eventNameStyle,
+          settings.eventNameAlign || "center",
+          settings.eventNameLetterSpacing || 0,
         );
       }
-
-      const cx = w / 2;
-      const watermarkX = cx + (settings.watermarkPlacementX || 0);
-      const watermarkY = footerY + 55 + (settings.watermarkPlacementY || 0);
-      drawTextWithSettings(
-        ctx,
-        settings.watermark || "ROVI AI Photo Booth",
-        watermarkX,
-        watermarkY,
-        watermarkStyle,
-        settings.watermarkAlign || "center",
-        settings.watermarkLetterSpacing || 0,
-      );
-
-      const eventNameX = cx + (settings.eventNamePlacementX || 0);
-      const eventNameY = footerY + 110 + (settings.eventNamePlacementY || 0);
-      drawTextWithSettings(
-        ctx,
-        settings.eventName,
-        eventNameX,
-        eventNameY,
-        eventNameStyle,
-        settings.eventNameAlign || "center",
-        settings.eventNameLetterSpacing || 0,
-      );
     }
   } else {
     // --- 2x6 Strip Layout ---
     if (isGarba) {
-      // 1. Draw 3 photos behind the golden frame cutouts
-      // Base frame sizes: 437x344, centered on 600px width
-      const baseFrames = [
-        { x: 81, y: 236, w: 437, h: 344 },
-        { x: 81, y: 636, w: 437, h: 345 },
-        { x: 81, y: 1036, w: 437, h: 344 },
-      ];
+      // Determine base box size from settings or defaults:
+      const customW = settings.stripPhotoWidth || 0;
+      const customH = settings.stripPhotoHeight || 0;
+      const baseW = customW > 0 ? customW : 437;
+      const baseH = customH > 0 ? customH : 344;
 
       const scale = settings.photoScale || 1.0;
       const marginSide = settings.photoMarginSide || 0;
       const marginTop = settings.photoMarginTop || 0;
       const gapY = settings.photoGapY || 0;
 
-      for (let i = 0; i < 3; i++) {
-        const bf = baseFrames[i];
-        const img = imgs[i];
-        if (img) {
-          // Compute frame with user scale, side margin, top margin, and gap
-          const fw = Math.round((bf.w + 4) * scale - marginSide * 2);
-          const fh = Math.round((bf.h + 4) * scale);
-          const fx = Math.round(300 - fw / 2);
-          const fy = Math.round(bf.y - 2 + marginTop + i * gapY);
+      const fw = Math.round(Math.min(590, Math.max(300, baseW * scale - marginSide * 2)));
+      const fh = Math.round(Math.min(520, Math.max(220, baseH * scale)));
+      const fx = Math.round(300 - fw / 2);
 
-          drawCoverWithRadius(
-            ctx,
-            img,
-            fx,
-            fy,
-            fw,
-            fh,
-            settings.photoZoom,
-            settings.photoBorderRadius || 0,
-            settings.photoBorderWidth || 0,
-            settings.photoBorderColor,
-          );
+      // If user enlarged boxes beyond default cutouts, render them proudly on top of overlay!
+      const isGrandBoxes = fw > 445 || fh > 355 || scale > 1.05;
+
+      const baseY0 = 236;
+      const baseGap = 56;
+      const heightGrowth = Math.max(0, fh - 344);
+      const startY = Math.max(35, Math.round(baseY0 + marginTop - heightGrowth * 0.55));
+      const effectiveGap = Math.max(-25, Math.round(baseGap + gapY - heightGrowth * 0.35));
+
+      if (!isGrandBoxes) {
+        // Classic mode: Draw behind cutout frames
+        for (let i = 0; i < 3; i++) {
+          const img = imgs[i];
+          if (img) {
+            const fy = startY + i * (fh + effectiveGap);
+            drawCoverWithRadius(
+              ctx,
+              img,
+              fx,
+              fy,
+              fw,
+              fh,
+              settings.photoZoom,
+              settings.photoBorderRadius || 0,
+              settings.photoBorderWidth || 0,
+              settings.photoBorderColor,
+            );
+          }
+        }
+
+        // Overlay on top
+        if (bgImg) {
+          ctx.drawImage(bgImg, 0, 0, STRIP_W, STRIP_H);
+        }
+      } else {
+        // Grand / Enlarged mode: Draw overlay first, then large photos on top with royal frame!
+        if (bgImg) {
+          ctx.drawImage(bgImg, 0, 0, STRIP_W, STRIP_H);
+        }
+
+        for (let i = 0; i < 3; i++) {
+          const img = imgs[i];
+          if (img) {
+            const fy = startY + i * (fh + effectiveGap);
+
+            ctx.save();
+            ctx.shadowColor = "rgba(0, 0, 0, 0.7)";
+            ctx.shadowBlur = 12;
+            ctx.shadowOffsetY = 4;
+
+            drawCoverWithRadius(
+              ctx,
+              img,
+              fx,
+              fy,
+              fw,
+              fh,
+              settings.photoZoom,
+              settings.photoBorderRadius ?? 8,
+              settings.photoBorderWidth || 7,
+              settings.photoBorderColor || "#d4af37",
+            );
+            ctx.restore();
+
+            // Inner golden metallic bevel highlight
+            if (!settings.photoBorderWidth) {
+              ctx.save();
+              ctx.strokeStyle = "#fff275";
+              ctx.lineWidth = 2;
+              ctx.strokeRect(fx + 2, fy + 2, fw - 4, fh - 4);
+              ctx.restore();
+            }
+          }
         }
       }
 
-      // 2. Draw the transparent decorative overlay (frames, dancers, mandalas, garlands)
-      if (bgImg) {
-        ctx.drawImage(bgImg, 0, 0, STRIP_W, STRIP_H);
-      }
-
-      // 3. Dynamic branding inside the royal footer arch
+      // Dynamic branding inside royal footer arch
       ctx.save();
       const cx = 300; // Center of strip
 
-      // Logo
-      if (settings.logoDataUrl) {
-        try {
-          const logo = await loadImg(settings.logoDataUrl);
-          if (logo) {
-            const lh = settings.logoSize || 45;
-            const lw = (logo.width / logo.height) * lh;
-            const lx = cx - lw / 2 + (settings.logoPlacementX || 0);
-            const ly = 1515 + (settings.logoPlacementY || 0);
-            ctx.drawImage(logo, lx, ly, lw, lh);
-          }
-        } catch {}
-      }
+      // Logo with zoom & adjustments
+      await drawEventLogo(ctx, settings, cx, 1515, 45);
 
       // Event Name
       const eventNameBaseY = settings.logoDataUrl ? 1585 : 1565;
@@ -659,19 +990,23 @@ export async function buildStrip(photos: string[], settings: Settings): Promise<
     } else {
       const footerH = settings.footerHeight || 200;
       const photosAreaH = STRIP_H - footerH;
-      const basePhotoH = Math.floor(photosAreaH / 3);
       const scale = settings.photoScale || 1.0;
-      const photoH = Math.round(basePhotoH * scale);
       const marginSide = settings.photoMarginSide || 0;
       const marginTop = settings.photoMarginTop || 0;
       const gapY = settings.photoGapY || 0;
 
+      const customW = settings.stripPhotoWidth || 0;
+      const customH = settings.stripPhotoHeight || 0;
+
+      const basePhotoH = customH > 0 ? customH : Math.floor(photosAreaH / 3);
+      const photoH = Math.round(basePhotoH * scale);
+
       for (let i = 0; i < 3; i++) {
         if (isFloral) {
-          const paddingX = 24 + marginSide;
-          const dx = Math.max(0, paddingX);
-          const dy = marginTop + i * (photoH + (16 + gapY));
-          const dw = Math.max(100, STRIP_W - dx * 2);
+          const baseW = customW > 0 ? customW : STRIP_W - 48;
+          const dw = Math.round(Math.min(STRIP_W, Math.max(100, baseW * scale - marginSide * 2)));
+          const dx = Math.round((STRIP_W - dw) / 2);
+          const dy = Math.max(0, marginTop + i * (photoH + (16 + gapY)));
 
           drawCoverWithRadius(
             ctx,
@@ -686,10 +1021,11 @@ export async function buildStrip(photos: string[], settings: Settings): Promise<
             settings.photoBorderColor || "#ff9ec3",
           );
         } else {
-          // Full bleed / custom margins for cyberpunk
-          const dx = Math.max(0, marginSide);
-          const dw = Math.max(100, STRIP_W - dx * 2);
-          const dy = marginTop + i * (photoH + gapY);
+          // Cyberpunk
+          const baseW = customW > 0 ? customW : STRIP_W;
+          const dw = Math.round(Math.min(STRIP_W, Math.max(100, baseW * scale - marginSide * 2)));
+          const dx = Math.round((STRIP_W - dw) / 2);
+          const dy = Math.max(0, marginTop + i * (photoH + gapY));
 
           drawCoverWithRadius(
             ctx,
@@ -717,18 +1053,7 @@ export async function buildStrip(photos: string[], settings: Settings): Promise<
       if (isFloral) {
         const cx = STRIP_W * 0.64;
 
-        if (settings.logoDataUrl) {
-          try {
-            const logo = await loadImg(settings.logoDataUrl);
-            if (logo) {
-              const lh = settings.logoSize || 50;
-              const lw = (logo.width / logo.height) * lh;
-              const lx = cx - lw / 2 + (settings.logoPlacementX || 0);
-              const ly = footerY + 12 + (settings.logoPlacementY || 0);
-              ctx.drawImage(logo, lx, ly, lw, lh);
-            }
-          } catch {}
-        }
+        await drawEventLogo(ctx, settings, cx, footerY + 12, 50);
 
         const watermarkX = cx + (settings.watermarkPlacementX || 0);
         const watermarkY = footerY + 70 + (settings.watermarkPlacementY || 0);
@@ -785,18 +1110,7 @@ export async function buildStrip(photos: string[], settings: Settings): Promise<
 
         const cx = STRIP_W / 2;
 
-        if (settings.logoDataUrl) {
-          try {
-            const logo = await loadImg(settings.logoDataUrl);
-            if (logo) {
-              const lh = settings.logoSize || 70;
-              const lw = (logo.width / logo.height) * lh;
-              const lx = cx - lw / 2 + (settings.logoPlacementX || 0);
-              const ly = footerY + 12 + (settings.logoPlacementY || 0);
-              ctx.drawImage(logo, lx, ly, lw, lh);
-            }
-          } catch {}
-        }
+        await drawEventLogo(ctx, settings, cx, footerY + 12, 70);
 
         const watermarkX = cx + (settings.watermarkPlacementX || 0);
         const watermarkY = footerY + footerH - 76 + (settings.watermarkPlacementY || 0);

@@ -12,6 +12,7 @@ import {
   Eye,
   Sparkles,
   ZoomIn,
+  ZoomOut,
   Move,
   LayoutGrid,
   Check,
@@ -149,7 +150,12 @@ export function AdminPanel({
         const p2 = createSamplePhoto("Pose 2", 215); // Cyan/Teal
         const p3 = createSamplePhoto("Pose 3", 42);  // Gold/Amber
         const p4 = createSamplePhoto("Pose 4", 280); // Purple
-        const photos = s.printLayout === "4x6" ? [p1, p2, p3, p4] : [p1, p2, p3];
+        const photos =
+          s.printLayout === "4x6-1shot"
+            ? [p1]
+            : s.printLayout === "4x6"
+              ? [p1, p2, p3, p4]
+              : [p1, p2, p3];
         const url = await buildStrip(photos, s);
         if (active) {
           setPreviewUrl(url);
@@ -372,64 +378,99 @@ export function AdminPanel({
                       <Field label="Print Layout">
                         <select
                           value={s.printLayout || "2x6"}
-                          onChange={(e) => update({ printLayout: e.target.value as "2x6" | "4x6" })}
+                          onChange={(e) =>
+                            update({
+                              printLayout: e.target.value as "2x6" | "4x6" | "4x6-1shot",
+                            })
+                          }
                           className="w-full bg-input border border-border rounded-xl px-3 py-2.5 text-foreground font-semibold focus:outline-none focus:ring-2 focus:ring-primary"
                         >
                           <option value="2x6">🎟️ 2" x 6" Photo Strip (3 Shots)</option>
                           <option value="4x6">🖼️ 4" x 6" Grid Print (4 Shots)</option>
+                          <option value="4x6-1shot">📸 4" x 6" Single Photo (1 Shot)</option>
                         </select>
                       </Field>
                     </div>
 
-                    {/* Photo Sizing & Scale Section */}
+                    {/* Strip Image Box Sizing & Dimensions Section */}
                     <div className="border border-border/70 rounded-2xl p-4 sm:p-5 bg-secondary/15 space-y-4">
                       <div className="flex items-center justify-between border-b border-border/40 pb-2">
                         <div className="flex items-center gap-2">
                           <ZoomIn className="w-4 h-4 text-primary" />
                           <h3 className="text-sm font-bold tracking-wider text-foreground uppercase">
-                            Photo Size & Prominence On Strip
+                            Strip Image Boxes & Photo Sizing
                           </h3>
                         </div>
                         <span className="text-[10px] uppercase font-bold tracking-wider bg-primary/20 text-primary px-2 py-0.5 rounded-full">
-                          Grand Sizing
+                          Adjust Box Dimensions
                         </span>
                       </div>
 
                       <p className="text-xs text-muted-foreground leading-relaxed">
-                        Control how large the photos appear on the photo strip. Boost scale so guests' faces are bold, clear, and prominent!
+                        Control the exact dimensions of image boxes on the strip. If image boxes look too small, boost the width and height or pick a grand preset so guests' faces are bold, clear, and prominent!
                       </p>
 
-                      {/* Quick Photo Scale Presets */}
+                      {/* Quick Photo Box Size Presets */}
                       <div className="space-y-1.5">
-                        <span className="text-xs text-muted-foreground font-medium">Quick Photo Size Presets:</span>
+                        <span className="text-xs text-muted-foreground font-medium">Quick Box Size Presets:</span>
                         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                           {[
-                            { label: "Compact", scale: 0.95 },
-                            { label: "Standard (100%)", scale: 1.0 },
-                            { label: "Large (115%)", scale: 1.15 },
-                            { label: "Maximized (130%)", scale: 1.3 },
-                          ].map((preset) => (
+                            { label: "Classic Frame (437×344)", w: 437, h: 344, scale: 1.0, preset: "classic" },
+                            { label: "Large Boxes (490×380)", w: 490, h: 380, scale: 1.0, preset: "large" },
+                            { label: "Grand / Wide (530×410)", w: 530, h: 410, scale: 1.0, preset: "grand" },
+                            { label: "Max Edge-to-Edge (570×430)", w: 570, h: 430, scale: 1.0, preset: "max" },
+                          ].map((p) => (
                             <button
-                              key={preset.label}
+                              key={p.preset}
                               type="button"
-                              onClick={() => update({ photoScale: preset.scale })}
+                              onClick={() =>
+                                update({
+                                  stripPhotoWidth: p.w,
+                                  stripPhotoHeight: p.h,
+                                  photoScale: p.scale,
+                                  stripBoxPreset: p.preset as any,
+                                })
+                              }
                               className={`py-2 px-2.5 rounded-xl text-xs font-bold border transition text-center ${
-                                Math.abs((s.photoScale || 1.0) - preset.scale) < 0.04
+                                s.stripPhotoWidth === p.w && s.stripPhotoHeight === p.h
                                   ? "bg-primary border-primary text-primary-foreground shadow"
                                   : "bg-input border-border/60 text-foreground hover:bg-secondary"
                               }`}
                             >
-                              {preset.label}
+                              {p.label}
                             </button>
                           ))}
                         </div>
                       </div>
 
+                      {/* Explicit Box Width and Height Sliders */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <InputSlider
+                          label="Image Box Width"
+                          min={350}
+                          max={590}
+                          step={5}
+                          value={s.stripPhotoWidth || 437}
+                          displayValue={s.stripPhotoWidth ? `${s.stripPhotoWidth}px` : "Auto (437px)"}
+                          onChange={(v) => update({ stripPhotoWidth: v, stripBoxPreset: "custom" })}
+                        />
+
+                        <InputSlider
+                          label="Image Box Height"
+                          min={250}
+                          max={520}
+                          step={5}
+                          value={s.stripPhotoHeight || 344}
+                          displayValue={s.stripPhotoHeight ? `${s.stripPhotoHeight}px` : "Auto (344px)"}
+                          onChange={(v) => update({ stripPhotoHeight: v, stripBoxPreset: "custom" })}
+                        />
+                      </div>
+
                       {/* Photo Scale Slider */}
                       <InputSlider
-                        label="Photo Scale / Size Multiplier"
-                        min={0.8}
-                        max={1.5}
+                        label="Overall Photo Scale Multiplier"
+                        min={0.7}
+                        max={1.8}
                         step={0.02}
                         value={s.photoScale || 1.0}
                         displayValue={`${Math.round((s.photoScale || 1.0) * 100)}%`}
@@ -448,13 +489,24 @@ export function AdminPanel({
                       />
 
                       {/* Reset Photo Sizing Button */}
-                      {(s.photoScale !== 1.0 || (s.photoZoom || 1.0) !== 1.0) && (
+                      {(s.photoScale !== 1.0 ||
+                        (s.photoZoom || 1.0) !== 1.0 ||
+                        s.stripPhotoWidth !== 0 ||
+                        s.stripPhotoHeight !== 0) && (
                         <button
                           type="button"
-                          onClick={() => update({ photoScale: 1.0, photoZoom: 1.0 })}
+                          onClick={() =>
+                            update({
+                              photoScale: 1.0,
+                              photoZoom: 1.0,
+                              stripPhotoWidth: 0,
+                              stripPhotoHeight: 0,
+                              stripBoxPreset: "classic",
+                            })
+                          }
                           className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1 underline pt-1"
                         >
-                          <Undo className="w-3 h-3" /> Reset Photo Size to Default
+                          <Undo className="w-3 h-3" /> Reset Image Box Dimensions to Default
                         </button>
                       )}
                     </div>
@@ -914,16 +966,28 @@ export function AdminPanel({
                         )}
                       </div>
 
-                      {/* Event Logo Controls */}
-                      <div className="border border-border/70 rounded-2xl p-4 bg-secondary/15 space-y-3">
+                      {/* Event Logo Controls with Zoom In / Zoom Out and Adjustments */}
+                      <div className="border border-border/70 rounded-2xl p-4 sm:p-5 bg-secondary/15 space-y-4">
                         <div className="flex items-center justify-between border-b border-border/40 pb-2">
-                          <h4 className="text-xs font-bold text-foreground uppercase tracking-wider">
-                            🖼️ Event Logo
-                          </h4>
+                          <div className="flex items-center gap-2">
+                            <ImageIcon className="w-4 h-4 text-primary" />
+                            <h4 className="text-sm font-bold text-foreground uppercase tracking-wider">
+                              Event Logo & Zoom Adjustments
+                            </h4>
+                          </div>
                           {s.logoDataUrl && (
                             <button
                               type="button"
-                              onClick={() => update({ logoDataUrl: null })}
+                              onClick={() =>
+                                update({
+                                  logoDataUrl: null,
+                                  logoScale: 1.0,
+                                  logoPlacementX: 0,
+                                  logoPlacementY: 0,
+                                  logoRotation: 0,
+                                  logoOpacity: 1.0,
+                                })
+                              }
                               className="text-[10px] text-destructive hover:underline font-bold"
                             >
                               Remove Logo
@@ -931,40 +995,213 @@ export function AdminPanel({
                           )}
                         </div>
 
+                        <p className="text-xs text-muted-foreground leading-relaxed">
+                          Upload your brand or event logo. Use zoom in, zoom out, size, and positioning controls to place it perfectly on the print.
+                        </p>
+
                         <input
                           type="file"
                           accept="image/*"
                           onChange={handleFile("logoDataUrl")}
-                          className="text-xs w-full file:mr-2 file:py-1 file:px-2.5 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-primary file:text-primary-foreground hover:file:opacity-90"
+                          className="text-xs w-full file:mr-2 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-primary file:text-primary-foreground hover:file:opacity-90 cursor-pointer"
                         />
 
                         {s.logoDataUrl && (
-                          <div className="space-y-3 pt-1">
-                            <div className="flex items-center gap-3">
-                              <img
-                                src={s.logoDataUrl}
-                                alt="logo"
-                                className="h-10 w-auto rounded bg-white p-1 border border-border"
-                              />
+                          <div className="space-y-4 pt-2 border-t border-border/40">
+                            {/* Mini preview & Zoom In / Out Buttons */}
+                            <div className="p-3 bg-black/40 rounded-xl border border-border/50 flex flex-col sm:flex-row items-center justify-between gap-3">
+                              <div className="flex items-center gap-3">
+                                <div className="h-14 w-20 flex items-center justify-center bg-white/95 rounded-lg p-1 border border-border/60 shadow-inner overflow-hidden">
+                                  <img
+                                    src={s.logoDataUrl}
+                                    alt="logo"
+                                    className="max-h-full max-w-full object-contain"
+                                    style={{
+                                      transform: `scale(${s.logoScale || 1.0}) rotate(${s.logoRotation || 0}deg)`,
+                                      opacity: s.logoOpacity ?? 1.0,
+                                    }}
+                                  />
+                                </div>
+                                <div>
+                                  <div className="text-xs font-bold text-foreground">Live Logo Fit</div>
+                                  <div className="text-[11px] text-muted-foreground">
+                                    Zoom: {Math.round((s.logoScale || 1.0) * 100)}% • Height: {s.logoSize || 50}px
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* Quick Zoom In / Out Control Bar */}
+                              <div className="flex items-center gap-1 bg-input border border-border/70 rounded-xl p-1">
+                                <button
+                                  type="button"
+                                  title="Zoom Out Logo"
+                                  onClick={() =>
+                                    update({
+                                      logoScale: Math.max(
+                                        0.3,
+                                        Number(((s.logoScale || 1.0) - 0.1).toFixed(2)),
+                                      ),
+                                    })
+                                  }
+                                  className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary transition"
+                                >
+                                  <ZoomOut className="w-4 h-4" />
+                                </button>
+
+                                {[0.5, 0.75, 1.0, 1.25, 1.5, 2.0].map((preset) => (
+                                  <button
+                                    key={preset}
+                                    type="button"
+                                    onClick={() => update({ logoScale: preset })}
+                                    className={`px-2 py-1 text-[11px] font-bold rounded-lg transition ${
+                                      Math.abs((s.logoScale || 1.0) - preset) < 0.04
+                                        ? "bg-primary text-primary-foreground shadow"
+                                        : "text-muted-foreground hover:text-foreground"
+                                    }`}
+                                  >
+                                    {Math.round(preset * 100)}%
+                                  </button>
+                                ))}
+
+                                <button
+                                  type="button"
+                                  title="Zoom In Logo"
+                                  onClick={() =>
+                                    update({
+                                      logoScale: Math.min(
+                                        3.0,
+                                        Number(((s.logoScale || 1.0) + 0.1).toFixed(2)),
+                                      ),
+                                    })
+                                  }
+                                  className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary transition"
+                                >
+                                  <ZoomIn className="w-4 h-4" />
+                                </button>
+                              </div>
+                            </div>
+
+                            {/* Logo Zoom & Size Sliders */}
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                               <InputSlider
-                                label="Logo Height"
+                                label="Logo Zoom / Scale Multiplier"
+                                min={0.3}
+                                max={3.0}
+                                step={0.05}
+                                value={s.logoScale || 1.0}
+                                displayValue={`${Math.round((s.logoScale || 1.0) * 100)}% (${(s.logoScale || 1.0).toFixed(2)}x)`}
+                                onChange={(v) => update({ logoScale: v })}
+                              />
+
+                              <InputSlider
+                                label="Base Logo Height (px)"
                                 min={20}
-                                max={120}
+                                max={250}
                                 step={2}
                                 value={s.logoSize || 50}
                                 displayValue={`${s.logoSize || 50}px`}
                                 onChange={(v) => update({ logoSize: v })}
                               />
                             </div>
-                            <InputSlider
-                              label="Logo Vertical Offset (Y)"
-                              min={-100}
-                              max={100}
-                              step={2}
-                              value={s.logoPlacementY ?? 0}
-                              displayValue={`${(s.logoPlacementY ?? 0) > 0 ? "+" : ""}${s.logoPlacementY ?? 0}px`}
-                              onChange={(v) => update({ logoPlacementY: v })}
-                            />
+
+                            {/* Logo Position Sliders (Horizontal & Vertical) */}
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                              <div className="space-y-1.5">
+                                <InputSlider
+                                  label="Horizontal Offset (X)"
+                                  min={-400}
+                                  max={400}
+                                  step={5}
+                                  value={s.logoPlacementX ?? 0}
+                                  displayValue={`${(s.logoPlacementX ?? 0) > 0 ? "+" : ""}${s.logoPlacementX ?? 0}px`}
+                                  onChange={(v) => update({ logoPlacementX: v })}
+                                />
+                                <div className="flex gap-2">
+                                  {[
+                                    { label: "Left (-150px)", val: -150 },
+                                    { label: "Center (0px)", val: 0 },
+                                    { label: "Right (+150px)", val: 150 },
+                                  ].map((p) => (
+                                    <button
+                                      key={p.label}
+                                      type="button"
+                                      onClick={() => update({ logoPlacementX: p.val })}
+                                      className="flex-1 py-1 text-[10px] font-semibold rounded-lg bg-input border border-border/60 hover:bg-secondary text-muted-foreground hover:text-foreground transition"
+                                    >
+                                      {p.label}
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+
+                              <InputSlider
+                                label="Vertical Offset (Y)"
+                                min={-250}
+                                max={250}
+                                step={5}
+                                value={s.logoPlacementY ?? 0}
+                                displayValue={`${(s.logoPlacementY ?? 0) > 0 ? "+" : ""}${s.logoPlacementY ?? 0}px`}
+                                onChange={(v) => update({ logoPlacementY: v })}
+                              />
+                            </div>
+
+                            {/* Rotation, Opacity, and Corner Radius */}
+                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-2 border-t border-border/30">
+                              <InputSlider
+                                label="Logo Rotation"
+                                min={-45}
+                                max={45}
+                                step={1}
+                                value={s.logoRotation ?? 0}
+                                displayValue={`${s.logoRotation ?? 0}°`}
+                                onChange={(v) => update({ logoRotation: v })}
+                              />
+
+                              <InputSlider
+                                label="Logo Opacity"
+                                min={0.1}
+                                max={1.0}
+                                step={0.05}
+                                value={s.logoOpacity ?? 1.0}
+                                displayValue={`${Math.round((s.logoOpacity ?? 1.0) * 100)}%`}
+                                onChange={(v) => update({ logoOpacity: v })}
+                              />
+
+                              <InputSlider
+                                label="Logo Rounded Corners"
+                                min={0}
+                                max={50}
+                                step={2}
+                                value={s.logoBorderRadius ?? 0}
+                                displayValue={`${s.logoBorderRadius ?? 0}px`}
+                                onChange={(v) => update({ logoBorderRadius: v })}
+                              />
+                            </div>
+
+                            {/* Reset Logo Adjustments */}
+                            {((s.logoScale || 1.0) !== 1.0 ||
+                              (s.logoPlacementX ?? 0) !== 0 ||
+                              (s.logoPlacementY ?? 0) !== 0 ||
+                              (s.logoRotation ?? 0) !== 0 ||
+                              (s.logoOpacity ?? 1.0) !== 1.0 ||
+                              (s.logoBorderRadius ?? 0) !== 0) && (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  update({
+                                    logoScale: 1.0,
+                                    logoPlacementX: 0,
+                                    logoPlacementY: 0,
+                                    logoRotation: 0,
+                                    logoOpacity: 1.0,
+                                    logoBorderRadius: 0,
+                                  })
+                                }
+                                className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1 underline pt-1"
+                              >
+                                <Undo className="w-3 h-3" /> Reset Logo Adjustments to Default
+                              </button>
+                            )}
                           </div>
                         )}
                       </div>
@@ -1208,7 +1445,11 @@ export function AdminPanel({
                     <span>Live Strip Preview</span>
                   </div>
                   <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-primary/20 text-primary border border-primary/30">
-                    {s.printLayout === "4x6" ? "4×6 Grid" : "2×6 Strip (300 DPI)"}
+                    {s.printLayout === "4x6-1shot"
+                      ? "4×6 Single Photo"
+                      : s.printLayout === "4x6"
+                        ? "4×6 Grid"
+                        : "2×6 Strip (300 DPI)"}
                   </span>
                 </div>
 
@@ -1234,7 +1475,13 @@ export function AdminPanel({
                 </div>
 
                 <div className="w-full pt-3 border-t border-white/10 flex items-center justify-between text-[11px] text-muted-foreground">
-                  <span>Photo Scale: {Math.round((s.photoScale || 1.0) * 100)}%</span>
+                  <span>
+                    Box:{" "}
+                    {s.stripPhotoWidth
+                      ? `${s.stripPhotoWidth}×${s.stripPhotoHeight || "auto"}px`
+                      : "Default"}
+                  </span>
+                  <span>Scale: {Math.round((s.photoScale || 1.0) * 100)}%</span>
                   <span>Zoom: {(s.photoZoom || 1.0).toFixed(2)}x</span>
                 </div>
               </div>

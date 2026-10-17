@@ -51,7 +51,7 @@ function TabletRemote() {
   const [settings, setSettings] = useState<Settings>(() => getSettings());
   const [adminOpen, setAdminOpen] = useState(false);
   const [eventName, setEventName] = useState(settings.eventName);
-  const [printLayout, setPrintLayout] = useState(settings.printLayout || "2x6");
+  const [printLayout, setPrintLayout] = useState<"2x6" | "4x6" | "4x6-1shot">(settings.printLayout || "2x6");
   const [enablePrint, setEnablePrint] = useState(settings.enablePrint !== false);
   const [enableQR, setEnableQR] = useState(settings.enableQR !== false);
 
@@ -76,7 +76,7 @@ function TabletRemote() {
   const tabletPeerRef = useRef<RTCPeerConnection | null>(null);
   const pendingHostCandidatesRef = useRef<RTCIceCandidateInit[]>([]);
 
-  const numShots = printLayout === "4x6" ? 4 : 3;
+  const numShots = printLayout === "4x6-1shot" ? 1 : printLayout === "4x6" ? 4 : 3;
 
   const loadStripForTablet = async (id?: string | null, url?: string | null) => {
     if (id) setCurrentStripId(id);
@@ -246,7 +246,7 @@ function TabletRemote() {
       setShotIdx(msg.shotIdx);
       setFlash(msg.flash);
       if (msg.eventName) setEventName(msg.eventName);
-      if (msg.printLayout) setPrintLayout(msg.printLayout as "2x6" | "4x6");
+      if (msg.printLayout) setPrintLayout(msg.printLayout as "2x6" | "4x6" | "4x6-1shot");
       if (msg.enablePrint !== undefined) setEnablePrint(msg.enablePrint);
       if (msg.enableQR !== undefined) setEnableQR(msg.enableQR);
       if (msg.stripId) setCurrentStripId(msg.stripId);
@@ -257,7 +257,7 @@ function TabletRemote() {
       } else {
         const patch: Partial<Settings> = {};
         if (msg.eventName) patch.eventName = msg.eventName;
-        if (msg.printLayout) patch.printLayout = msg.printLayout as "2x6" | "4x6";
+        if (msg.printLayout) patch.printLayout = msg.printLayout as "2x6" | "4x6" | "4x6-1shot";
         if ((msg as any).theme) patch.theme = (msg as any).theme;
         if (msg.enablePrint !== undefined) patch.enablePrint = msg.enablePrint;
         if (msg.enableQR !== undefined) patch.enableQR = msg.enableQR;
@@ -299,7 +299,7 @@ function TabletRemote() {
       if (newSettings) {
         saveSettings(newSettings);
         setSettings(newSettings);
-        if (newSettings.printLayout) setPrintLayout(newSettings.printLayout as "2x6" | "4x6");
+        if (newSettings.printLayout) setPrintLayout(newSettings.printLayout as "2x6" | "4x6" | "4x6-1shot");
         if (newSettings.eventName) setEventName(newSettings.eventName);
         if (newSettings.enablePrint !== undefined) setEnablePrint(newSettings.enablePrint);
         if (newSettings.enableQR !== undefined) setEnableQR(newSettings.enableQR);
@@ -1124,7 +1124,7 @@ function TabletRemote() {
         onSave={(newSettings) => {
           saveSettings(newSettings);
           setSettings(newSettings);
-          if (newSettings.printLayout) setPrintLayout(newSettings.printLayout as "2x6" | "4x6");
+          if (newSettings.printLayout) setPrintLayout(newSettings.printLayout as "2x6" | "4x6" | "4x6-1shot");
           if (newSettings.eventName) setEventName(newSettings.eventName);
           if (newSettings.enablePrint !== undefined) setEnablePrint(newSettings.enablePrint);
           if (newSettings.enableQR !== undefined) setEnableQR(newSettings.enableQR);
