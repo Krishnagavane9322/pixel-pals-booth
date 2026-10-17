@@ -12,11 +12,11 @@ import { getServerConfig } from "../config.server";
 // Functions for server logic.
 
 export const getGreeting = createServerFn({ method: "POST" })
-  .inputValidator(z.object({ name: z.string().min(1) }))
-  .handler(async ({ data }) => {
+  .validator((d: any) => d)
+  .handler(async ({ data }: any) => {
     const config = getServerConfig();
     return {
-      greeting: `Hello, ${data.name}!`,
+      greeting: `Hello, ${data?.name || "Guest"}!`,
       mode: config.nodeEnv ?? "unknown",
     };
   });
