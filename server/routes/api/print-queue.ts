@@ -16,7 +16,7 @@ export default defineEventHandler(async (event) => {
 
   if (method === "GET") {
     const query = getQuery(event);
-    const since = Number(query.since) || (globalThis.__lastPoppedPrintTs || 0);
+    const since = Number(query.since) || globalThis.__lastPoppedPrintTs || 0;
 
     const queue = globalThis.__printJobQueue || [];
     const pendingJobs = queue.filter((j) => j.ts > since);

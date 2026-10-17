@@ -114,7 +114,8 @@ function PhotoPage() {
       <div className="min-h-screen grid-bg flex flex-col items-center justify-center p-6 text-center gap-4">
         <h1 className="text-3xl font-black neon-text">Photo Not Found</h1>
         <p className="text-muted-foreground text-sm max-w-sm">
-          The photo strip could not be found or has expired. Make sure your phone is connected to the same Wi-Fi network as the photo booth.
+          The photo strip could not be found or has expired. Make sure your phone is connected to
+          the same Wi-Fi network as the photo booth.
         </p>
       </div>
     );
@@ -132,7 +133,11 @@ function PhotoPage() {
         onClick={download}
         className="flex items-center gap-3 bg-primary text-primary-foreground rounded-2xl px-8 py-4 text-xl font-bold shadow-lg hover:scale-105 active:scale-95 transition"
       >
-        {typeof navigator !== "undefined" && "share" in navigator ? <Share2 className="w-6 h-6" /> : <Download className="w-6 h-6" />}
+        {typeof navigator !== "undefined" && "share" in navigator ? (
+          <Share2 className="w-6 h-6" />
+        ) : (
+          <Download className="w-6 h-6" />
+        )}
         <span>Save / Share Photo</span>
       </button>
       <div className="text-xs text-muted-foreground">{rec.eventName}</div>

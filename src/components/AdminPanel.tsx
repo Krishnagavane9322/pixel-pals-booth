@@ -100,7 +100,11 @@ export function AdminPanel({
         let videoDevs = devList.filter((d) => d.kind === "videoinput");
 
         // If labels are empty, try to request permission to reveal labels
-        if (videoDevs.length > 0 && videoDevs.every((d) => !d.label) && navigator.mediaDevices.getUserMedia) {
+        if (
+          videoDevs.length > 0 &&
+          videoDevs.every((d) => !d.label) &&
+          navigator.mediaDevices.getUserMedia
+        ) {
           try {
             const stream = await navigator.mediaDevices.getUserMedia({ video: true });
             stream.getTracks().forEach((track) => track.stop());
@@ -151,15 +155,21 @@ export function AdminPanel({
       {open && (
         <motion.div
           className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
-          initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
         >
           <motion.div
-            initial={{ y: 30, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 30, opacity: 0 }}
+            initial={{ y: 30, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={{ y: 30, opacity: 0 }}
             className="bg-card neon-border rounded-2xl w-full max-w-lg p-6 max-h-[90vh] overflow-y-auto"
           >
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-2xl font-bold neon-text">Admin Settings</h2>
-              <button onClick={onClose} className="p-2 rounded-lg hover:bg-secondary"><X /></button>
+              <button onClick={onClose} className="p-2 rounded-lg hover:bg-secondary">
+                <X />
+              </button>
             </div>
 
             <div className="space-y-4">
@@ -178,8 +188,15 @@ export function AdminPanel({
                 />
               </Field>
               <Field label="Event Logo">
-                <input type="file" accept="image/*" onChange={handleFile("logoDataUrl")} className="text-sm" />
-                {s.logoDataUrl && <img src={s.logoDataUrl} alt="logo" className="h-16 mt-2 rounded bg-white p-1" />}
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={handleFile("logoDataUrl")}
+                  className="text-sm"
+                />
+                {s.logoDataUrl && (
+                  <img src={s.logoDataUrl} alt="logo" className="h-16 mt-2 rounded bg-white p-1" />
+                )}
               </Field>
               <Field label="Photo Strip Theme">
                 <select
@@ -219,7 +236,11 @@ export function AdminPanel({
                         if (!navigator.mediaDevices?.enumerateDevices) return;
                         let devList = await navigator.mediaDevices.enumerateDevices();
                         let videoDevs = devList.filter((d) => d.kind === "videoinput");
-                        if (videoDevs.length > 0 && videoDevs.every((d) => !d.label) && navigator.mediaDevices.getUserMedia) {
+                        if (
+                          videoDevs.length > 0 &&
+                          videoDevs.every((d) => !d.label) &&
+                          navigator.mediaDevices.getUserMedia
+                        ) {
                           const stream = await navigator.mediaDevices.getUserMedia({ video: true });
                           stream.getTracks().forEach((track) => track.stop());
                           devList = await navigator.mediaDevices.enumerateDevices();
@@ -240,7 +261,9 @@ export function AdminPanel({
                   onChange={(e) => {
                     if (typeof window !== "undefined" && (window as any).__roviCameraStream) {
                       try {
-                        ((window as any).__roviCameraStream as MediaStream).getTracks().forEach((t) => t.stop());
+                        ((window as any).__roviCameraStream as MediaStream)
+                          .getTracks()
+                          .forEach((t) => t.stop());
                       } catch {}
                       delete (window as any).__roviCameraStream;
                     }
@@ -258,8 +281,10 @@ export function AdminPanel({
               </div>
               {/* Exposure Section */}
               <div className="border border-border/50 rounded-xl p-4 bg-secondary/10 space-y-4">
-                <h3 className="text-sm font-bold tracking-wider text-accent uppercase">Exposure Controls</h3>
-                
+                <h3 className="text-sm font-bold tracking-wider text-accent uppercase">
+                  Exposure Controls
+                </h3>
+
                 <SliderToggle
                   label="Manual Exposure"
                   value={s.manualExposure}
@@ -273,7 +298,10 @@ export function AdminPanel({
                     max={3.0}
                     step={0.1}
                     value={s.exposureCompensation ?? 0}
-                    displayValue={(((s.exposureCompensation ?? 0) > 0 ? "+" : "") + (s.exposureCompensation ?? 0).toFixed(1))}
+                    displayValue={
+                      ((s.exposureCompensation ?? 0) > 0 ? "+" : "") +
+                      (s.exposureCompensation ?? 0).toFixed(1)
+                    }
                     onChange={(v) => update({ exposureCompensation: v })}
                   />
                 ) : (
@@ -284,8 +312,13 @@ export function AdminPanel({
                       max={SHUTTER_SPEEDS.length - 1}
                       step={1}
                       value={getClosestShutterIndex(s.exposureTime ?? 100)}
-                      displayValue={SHUTTER_SPEEDS[getClosestShutterIndex(s.exposureTime ?? 100)]?.label || "1/100s"}
-                      onChange={(idx) => update({ exposureTime: SHUTTER_SPEEDS[idx]?.value ?? 100 })}
+                      displayValue={
+                        SHUTTER_SPEEDS[getClosestShutterIndex(s.exposureTime ?? 100)]?.label ||
+                        "1/100s"
+                      }
+                      onChange={(idx) =>
+                        update({ exposureTime: SHUTTER_SPEEDS[idx]?.value ?? 100 })
+                      }
                     />
                     <InputSlider
                       label="ISO"
@@ -325,7 +358,7 @@ export function AdminPanel({
                       max={50}
                       step={1}
                       value={s.tint ?? 0}
-                      displayValue={(((s.tint ?? 0) > 0 ? "+" : "") + (s.tint ?? 0))}
+                      displayValue={((s.tint ?? 0) > 0 ? "+" : "") + (s.tint ?? 0)}
                       onChange={(v) => update({ tint: v })}
                     />
                   </div>
@@ -334,15 +367,28 @@ export function AdminPanel({
 
               {/* Informative notice for physical aperture */}
               <div className="text-xs text-amber-500/90 leading-normal border border-amber-500/20 rounded-xl p-3 bg-amber-500/5">
-                ℹ️ <strong>Aperture & Lens Note:</strong> Physical camera settings like Aperture can only be adjusted directly on your camera body dial (Nikon D5600) or lens ring.
+                ℹ️ <strong>Aperture & Lens Note:</strong> Physical camera settings like Aperture can
+                only be adjusted directly on your camera body dial (Nikon D5600) or lens ring.
               </div>
               <Field label={`Countdown Time: ${s.countdownTime ?? 3}s`}>
-                <input type="range" min={1} max={10} value={s.countdownTime ?? 3}
-                  onChange={(e) => update({ countdownTime: +e.target.value })} className="w-full" />
+                <input
+                  type="range"
+                  min={1}
+                  max={10}
+                  value={s.countdownTime ?? 3}
+                  onChange={(e) => update({ countdownTime: +e.target.value })}
+                  className="w-full"
+                />
               </Field>
               <Field label={`Photo Gap: ${s.photoGap ?? 3}s`}>
-                <input type="range" min={1} max={10} value={s.photoGap ?? 3}
-                  onChange={(e) => update({ photoGap: +e.target.value })} className="w-full" />
+                <input
+                  type="range"
+                  min={1}
+                  max={10}
+                  value={s.photoGap ?? 3}
+                  onChange={(e) => update({ photoGap: +e.target.value })}
+                  className="w-full"
+                />
               </Field>
               <InputSlider
                 label="Photo Zoom / Crop"
@@ -369,8 +415,10 @@ export function AdminPanel({
                   <div className="space-y-4 pt-2 border-t border-accent/10 pl-2 border-l border-accent/20">
                     {/* Event Name styling */}
                     <div className="space-y-3">
-                      <h4 className="text-sm font-bold text-foreground/90 border-b border-border/30 pb-1">Event Name Styling</h4>
-                      
+                      <h4 className="text-sm font-bold text-foreground/90 border-b border-border/30 pb-1">
+                        Event Name Styling
+                      </h4>
+
                       <Field label="Font Family">
                         <select
                           value={s.eventNameFontFamily || ""}
@@ -380,7 +428,9 @@ export function AdminPanel({
                           <option value="">Auto (Theme Default)</option>
                           <option value="ui-sans-serif, system-ui, sans-serif">Modern Sans</option>
                           <option value="Georgia, serif">Classic Serif</option>
-                          <option value="'Brush Script MT', 'Great Vibes', cursive, sans-serif">Elegant Script</option>
+                          <option value="'Brush Script MT', 'Great Vibes', cursive, sans-serif">
+                            Elegant Script
+                          </option>
                           <option value="'Courier New', Courier, monospace">Retro Mono</option>
                           <option value="'Impact', Charcoal, sans-serif">Impact Bold</option>
                         </select>
@@ -392,7 +442,9 @@ export function AdminPanel({
                         max={80}
                         step={2}
                         value={s.eventNameFontSize || 0}
-                        displayValue={s.eventNameFontSize === 0 ? "Auto" : `${s.eventNameFontSize}px`}
+                        displayValue={
+                          s.eventNameFontSize === 0 ? "Auto" : `${s.eventNameFontSize}px`
+                        }
                         onChange={(v) => update({ eventNameFontSize: v })}
                       />
 
@@ -406,7 +458,9 @@ export function AdminPanel({
                                 onChange={(e) => update({ eventNameColor: e.target.value })}
                                 className="w-10 h-10 border-0 bg-transparent cursor-pointer"
                               />
-                              <span className="text-xs text-muted-foreground">{s.eventNameColor || "Auto (Theme Default)"}</span>
+                              <span className="text-xs text-muted-foreground">
+                                {s.eventNameColor || "Auto (Theme Default)"}
+                              </span>
                             </div>
                           </Field>
                         </div>
@@ -424,8 +478,10 @@ export function AdminPanel({
 
                     {/* Watermark styling */}
                     <div className="space-y-3 pt-3 border-t border-border/20">
-                      <h4 className="text-sm font-bold text-foreground/90 border-b border-border/30 pb-1">Watermark Text Styling</h4>
-                      
+                      <h4 className="text-sm font-bold text-foreground/90 border-b border-border/30 pb-1">
+                        Watermark Text Styling
+                      </h4>
+
                       <Field label="Font Family">
                         <select
                           value={s.watermarkFontFamily || ""}
@@ -435,7 +491,9 @@ export function AdminPanel({
                           <option value="">Auto (Theme Default)</option>
                           <option value="ui-sans-serif, system-ui, sans-serif">Modern Sans</option>
                           <option value="Georgia, serif">Classic Serif</option>
-                          <option value="'Brush Script MT', 'Great Vibes', cursive, sans-serif">Elegant Script</option>
+                          <option value="'Brush Script MT', 'Great Vibes', cursive, sans-serif">
+                            Elegant Script
+                          </option>
                           <option value="'Courier New', Courier, monospace">Retro Mono</option>
                           <option value="'Impact', Charcoal, sans-serif">Impact Bold</option>
                         </select>
@@ -447,7 +505,9 @@ export function AdminPanel({
                         max={60}
                         step={2}
                         value={s.watermarkFontSize || 0}
-                        displayValue={s.watermarkFontSize === 0 ? "Auto" : `${s.watermarkFontSize}px`}
+                        displayValue={
+                          s.watermarkFontSize === 0 ? "Auto" : `${s.watermarkFontSize}px`
+                        }
                         onChange={(v) => update({ watermarkFontSize: v })}
                       />
 
@@ -461,7 +521,9 @@ export function AdminPanel({
                                 onChange={(e) => update({ watermarkColor: e.target.value })}
                                 className="w-10 h-10 border-0 bg-transparent cursor-pointer"
                               />
-                              <span className="text-xs text-muted-foreground">{s.watermarkColor || "Auto (Theme Default)"}</span>
+                              <span className="text-xs text-muted-foreground">
+                                {s.watermarkColor || "Auto (Theme Default)"}
+                              </span>
                             </div>
                           </Field>
                         </div>
@@ -480,18 +542,45 @@ export function AdminPanel({
                 )}
               </div>
               <div className="flex gap-4">
-                <Toggle label="Enable Print" value={s.enablePrint} onChange={(v) => update({ enablePrint: v })} />
-                <Toggle label="Enable QR" value={s.enableQR} onChange={(v) => update({ enableQR: v })} />
+                <Toggle
+                  label="Enable Print"
+                  value={s.enablePrint}
+                  onChange={(v) => update({ enablePrint: v })}
+                />
+                <Toggle
+                  label="Enable QR"
+                  value={s.enableQR}
+                  onChange={(v) => update({ enableQR: v })}
+                />
               </div>
-              <Toggle label="Voice Assistant" value={s.enableVoice !== false} onChange={(v) => update({ enableVoice: v })} />
-              
+              <Toggle
+                label="Voice Assistant"
+                value={s.enableVoice !== false}
+                onChange={(v) => update({ enableVoice: v })}
+              />
+
               {/* Wireless Remote Connection Section */}
               {tabletQr && (
                 <div className="border border-border/50 rounded-xl p-4 bg-secondary/10 text-center space-y-2 mt-4">
-                  <h3 className="text-sm font-bold tracking-wider text-accent uppercase text-xs">Connect Tablet Remote</h3>
-                  <p className="text-[10px] text-muted-foreground">Scan this QR code with your tablet/phone to control the booth wirelessly.</p>
-                  <img src={tabletQr} alt="Tablet QR" className="w-36 h-36 mx-auto rounded-lg bg-white p-2 border border-border" />
-                  <a href={tabletUrl} target="_blank" rel="noreferrer" className="text-[10px] text-primary hover:underline break-all block">{tabletUrl}</a>
+                  <h3 className="text-sm font-bold tracking-wider text-accent uppercase text-xs">
+                    Connect Tablet Remote
+                  </h3>
+                  <p className="text-[10px] text-muted-foreground">
+                    Scan this QR code with your tablet/phone to control the booth wirelessly.
+                  </p>
+                  <img
+                    src={tabletQr}
+                    alt="Tablet QR"
+                    className="w-36 h-36 mx-auto rounded-lg bg-white p-2 border border-border"
+                  />
+                  <a
+                    href={tabletUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-[10px] text-primary hover:underline break-all block"
+                  >
+                    {tabletUrl}
+                  </a>
                 </div>
               )}
             </div>
@@ -499,7 +588,9 @@ export function AdminPanel({
             <button
               onClick={onClose}
               className="mt-6 w-full bg-primary text-primary-foreground rounded-xl py-3 font-bold"
-            >Done</button>
+            >
+              Done
+            </button>
           </motion.div>
         </motion.div>
       )}
@@ -515,13 +606,23 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
     </label>
   );
 }
-function Toggle({ label, value, onChange }: { label: string; value: boolean; onChange: (v: boolean) => void }) {
+function Toggle({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: boolean;
+  onChange: (v: boolean) => void;
+}) {
   return (
     <button
       type="button"
       onClick={() => onChange(!value)}
       className={`flex-1 rounded-xl border px-3 py-3 font-semibold transition ${
-        value ? "bg-primary/20 border-primary text-primary" : "bg-secondary border-border text-muted-foreground"
+        value
+          ? "bg-primary/20 border-primary text-primary"
+          : "bg-secondary border-border text-muted-foreground"
       }`}
     >
       {label}: {value ? "ON" : "OFF"}
@@ -555,7 +656,9 @@ function SliderToggle({
             }`}
           />
         </button>
-        <span className={`text-sm font-bold w-8 ${value ? "text-accent" : "text-muted-foreground"}`}>
+        <span
+          className={`text-sm font-bold w-8 ${value ? "text-accent" : "text-muted-foreground"}`}
+        >
           {value ? "ON" : "OFF"}
         </span>
       </div>

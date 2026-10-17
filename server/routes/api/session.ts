@@ -59,7 +59,8 @@ export default defineEventHandler(async (event) => {
         channel,
         screen: body?.screen ?? existing?.screen ?? "welcome",
         stripId: body?.stripId !== undefined ? body.stripId : (existing?.stripId ?? null),
-        stripDataUrl: body?.stripDataUrl !== undefined ? body.stripDataUrl : (existing?.stripDataUrl ?? null),
+        stripDataUrl:
+          body?.stripDataUrl !== undefined ? body.stripDataUrl : (existing?.stripDataUrl ?? null),
         action: body?.action ?? null,
         actionTs: body?.action ? Date.now() : (existing?.actionTs ?? 0),
         ts: Date.now(),

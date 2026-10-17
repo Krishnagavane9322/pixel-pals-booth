@@ -15,9 +15,10 @@ export default defineEventHandler(async (event) => {
       dataUrl?: string;
       printerName?: string;
       printLayout?: "2x6" | "4x6";
+      copies?: number;
     };
 
-    let { id, dataUrl, printerName = "DS-RX1", printLayout = "2x6" } = body || {};
+    let { id, dataUrl, printerName = "DS-RX1", printLayout = "2x6", copies = 1 } = body || {};
 
     // 1. Locate photo strip base64 dataUrl if not provided in body
     if (!dataUrl && id) {
@@ -28,7 +29,11 @@ export default defineEventHandler(async (event) => {
       } else {
         const tmpPath = path.join(os.tmpdir(), "photos", `${id}.jpg`);
         const pubPath = path.join(process.cwd(), "public", "photos", `${id}.jpg`);
-        const targetPath = fs.existsSync(pubPath) ? pubPath : (fs.existsSync(tmpPath) ? tmpPath : null);
+        const targetPath = fs.existsSync(pubPath)
+          ? pubPath
+          : fs.existsSync(tmpPath)
+            ? tmpPath
+            : null;
         if (targetPath) {
           const buf = fs.readFileSync(targetPath);
           dataUrl = `data:image/jpeg;base64,${buf.toString("base64")}`;
@@ -96,6 +101,7 @@ if (Test-Path $filePath) {
         if ($foundPrinter) {
             $pd = New-Object System.Drawing.Printing.PrintDocument
             $pd.PrinterSettings.PrinterName = $foundPrinter
+            $pd.PrinterSettings.Copies = ${Math.max(1, Math.min(10, Number(copies) || 1))}
             $pd.DefaultPageSettings.Landscape = $true
             $pd.DefaultPageSettings.Margins = New-Object System.Drawing.Printing.Margins(0, 0, 0, 0)
 
@@ -155,8 +161,12 @@ if (Test-Path $filePath) {
           (error, stdout, stderr) => {
             // Clean up temporary script and image file after sending to spooler
             setTimeout(() => {
-              try { fs.unlinkSync(psScriptPath); } catch {}
-              try { fs.unlinkSync(printFile); } catch {}
+              try {
+                fs.unlinkSync(psScriptPath);
+              } catch {}
+              try {
+                fs.unlinkSync(printFile);
+              } catch {}
             }, 5000);
 
             if (error) {
@@ -166,7 +176,7 @@ if (Test-Path $filePath) {
               console.log("[Server Print] Native direct print sent cleanly to printer!");
               resolve({ success: true, mode: "direct", printer: printerName });
             }
-          }
+          },
         );
       });
     }

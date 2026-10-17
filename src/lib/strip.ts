@@ -3,31 +3,31 @@ import type { Settings } from "./booth-storage";
 // 2x6 inch canvas at 300 DPI = 600x1800px
 // Layout: The canvas itself is a true 2x6 strip.
 // DNP RX1 prints this and cuts at the 2" mark.
-export const STRIP_W = 600;   // 2" @ 300dpi
-export const STRIP_H = 1800;   // 6" @ 300dpi
+export const STRIP_W = 600; // 2" @ 300dpi
+export const STRIP_H = 1800; // 6" @ 300dpi
 
 function getTypography(
   type: "eventName" | "watermark",
   settings: Settings,
   theme: "cyberpunk" | "floral",
-  layout: "2x6" | "4x6"
+  layout: "2x6" | "4x6",
 ) {
   const isFloral = theme === "floral";
   const is4x6 = layout === "4x6";
-  
+
   if (type === "eventName") {
     let color = settings.eventNameColor;
     if (!color) {
       color = isFloral ? "#e0497f" : "#ffffff";
     }
-    
+
     let family = settings.eventNameFontFamily;
     if (!family) {
-      family = isFloral 
-        ? "'Brush Script MT', 'Great Vibes', cursive, sans-serif" 
+      family = isFloral
+        ? "'Brush Script MT', 'Great Vibes', cursive, sans-serif"
         : "ui-sans-serif, system-ui, sans-serif";
     }
-    
+
     let size = settings.eventNameFontSize;
     if (!size) {
       if (isFloral) {
@@ -36,24 +36,22 @@ function getTypography(
         size = is4x6 ? 24 : 26;
       }
     }
-    
+
     const fontStyle = isFloral ? `bold ${size}px` : `600 ${size}px`;
     const font = `${fontStyle} ${family}`;
-    
+
     return { color, font };
   } else {
     let color = settings.watermarkColor;
     if (!color) {
       color = isFloral ? "#8d5940" : "#7ee7ff";
     }
-    
+
     let family = settings.watermarkFontFamily;
     if (!family) {
-      family = isFloral 
-        ? "Georgia, serif" 
-        : "ui-sans-serif, system-ui, sans-serif";
+      family = isFloral ? "Georgia, serif" : "ui-sans-serif, system-ui, sans-serif";
     }
-    
+
     let size = settings.watermarkFontSize;
     if (!size) {
       if (isFloral) {
@@ -62,18 +60,15 @@ function getTypography(
         size = is4x6 ? 32 : 36;
       }
     }
-    
+
     const fontStyle = isFloral ? `italic 600 ${size}px` : `bold ${size}px`;
     const font = `${fontStyle} ${family}`;
-    
+
     return { color, font };
   }
 }
 
-export async function buildStrip(
-  photos: string[],
-  settings: Settings,
-): Promise<string> {
+export async function buildStrip(photos: string[], settings: Settings): Promise<string> {
   const is4x6 = settings.printLayout === "4x6";
   const canvas = document.createElement("canvas");
   canvas.width = is4x6 ? 1800 : STRIP_W;
@@ -85,8 +80,18 @@ export async function buildStrip(
   const w = canvas.width;
   const h = canvas.height;
 
-  const eventNameStyle = getTypography("eventName", settings, settings.theme || "cyberpunk", settings.printLayout || "2x6");
-  const watermarkStyle = getTypography("watermark", settings, settings.theme || "cyberpunk", settings.printLayout || "2x6");
+  const eventNameStyle = getTypography(
+    "eventName",
+    settings,
+    settings.theme || "cyberpunk",
+    settings.printLayout || "2x6",
+  );
+  const watermarkStyle = getTypography(
+    "watermark",
+    settings,
+    settings.theme || "cyberpunk",
+    settings.printLayout || "2x6",
+  );
 
   // 1. Load background if floral theme, and all photos
   const isFloral = settings.theme === "floral";
@@ -141,14 +146,14 @@ export async function buildStrip(
       const row = Math.floor(i / 2);
       const dx = startX + col * (colW + gapX);
       const dy = startY + row * (rowH + gapY);
-      
+
       const img = imgs[i] || imgs[0]; // fallback if less than 4 photos
       if (!img) continue;
 
       if (isFloral) {
         // Draw photo
         drawCover(ctx, img, dx, dy, colW, rowH, settings.photoZoom);
-        
+
         // Soft pink outer frame border
         ctx.strokeStyle = "#ff9ec3";
         ctx.lineWidth = 8;
@@ -162,7 +167,7 @@ export async function buildStrip(
         ctx.strokeStyle = "rgba(0, 245, 255, 0.5)"; // neon cyan border
         ctx.lineWidth = 6;
         ctx.strokeRect(dx, dy, colW, rowH);
-        
+
         // Add neon glow effect corner lines or shadow
         ctx.shadowColor = "#00f5ff";
         ctx.shadowBlur = 10;
@@ -193,7 +198,11 @@ export async function buildStrip(
       ctx.fillStyle = "#8a756a";
       ctx.font = "500 18px Georgia, serif";
       ctx.textAlign = "center";
-      ctx.fillText(new Date().toLocaleString(undefined, { dateStyle: "medium" }), 1600, footerY + 90);
+      ctx.fillText(
+        new Date().toLocaleString(undefined, { dateStyle: "medium" }),
+        1600,
+        footerY + 90,
+      );
 
       // Centered text
       ctx.textAlign = "center";
@@ -259,7 +268,7 @@ export async function buildStrip(
 
     for (let i = 0; i < 3; i++) {
       const y = i * photoH;
-      
+
       if (isFloral) {
         // Elegant pink border layout for floral theme
         const paddingX = 24;
@@ -268,10 +277,10 @@ export async function buildStrip(
         const dy = y + paddingY;
         const dw = STRIP_W - paddingX * 2;
         const dh = photoH - paddingY * 2;
-        
+
         // Draw cover-cropped photo with zoom
         drawCover(ctx, imgs[i], dx, dy, dw, dh, settings.photoZoom);
-        
+
         // Soft pink outer frame border
         ctx.strokeStyle = "#ff9ec3";
         ctx.lineWidth = 6;
@@ -295,7 +304,7 @@ export async function buildStrip(
       // Floral text content (bunny decoration is already in the background template)
       ctx.textAlign = "center";
       const cx = STRIP_W * 0.64; // center of text block on the right half, avoiding the bunny on the left
-      
+
       // Draw event logo if uploaded (above the text)
       if (settings.logoDataUrl) {
         try {
@@ -320,7 +329,11 @@ export async function buildStrip(
       // Date
       ctx.fillStyle = "#8a756a"; // soft beige brown print color
       ctx.font = "500 16px Georgia, serif";
-      ctx.fillText(new Date().toLocaleString(undefined, { dateStyle: "medium" }), cx, footerY + 165);
+      ctx.fillText(
+        new Date().toLocaleString(undefined, { dateStyle: "medium" }),
+        cx,
+        footerY + 165,
+      );
     } else {
       // Cyberpunk footer
       ctx.fillStyle = "rgba(11,16,32,0.97)";
@@ -381,13 +394,19 @@ function loadImg(src: string): Promise<HTMLImageElement | null> {
 function drawCover(
   ctx: CanvasRenderingContext2D,
   img: HTMLImageElement | null,
-  x: number, y: number, w: number, h: number,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
   zoom: number = 1.0,
 ) {
   if (!img || !img.width || !img.height) return;
   const ir = img.width / img.height;
   const tr = w / h;
-  let sx = 0, sy = 0, sw = img.width, sh = img.height;
+  let sx = 0,
+    sy = 0,
+    sw = img.width,
+    sh = img.height;
   if (ir > tr) {
     sw = img.height * tr;
     sx = (img.width - sw) / 2;
@@ -445,7 +464,10 @@ function waitForFrames(video: HTMLVideoElement, frameCount = 2): Promise<void> {
   });
 }
 
-export async function captureFromVideo(video: HTMLVideoElement, cssFilter?: string): Promise<string> {
+export async function captureFromVideo(
+  video: HTMLVideoElement,
+  cssFilter?: string,
+): Promise<string> {
   // Wait for 2 stable decoded frames so the camera sensor, auto-exposure,
   // and auto-focus have fully settled AFTER the flash fired.
   await waitForFrames(video, 2);
@@ -469,4 +491,3 @@ export async function captureFromVideo(video: HTMLVideoElement, cssFilter?: stri
   ctx.drawImage(video, 0, 0, vw, vh);
   return c.toDataURL("image/jpeg", 0.96);
 }
-

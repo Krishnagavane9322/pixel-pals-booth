@@ -35,10 +35,16 @@ try {
   const tmpPs = path.join(__dirname, "_install_svc.ps1");
   fs.writeFileSync(tmpPs, psScript, "utf-8");
 
-  execSync(`powershell.exe -NoProfile -ExecutionPolicy Bypass -File "${tmpPs}"`, { stdio: "inherit" });
-  try { fs.unlinkSync(tmpPs); } catch {}
+  execSync(`powershell.exe -NoProfile -ExecutionPolicy Bypass -File "${tmpPs}"`, {
+    stdio: "inherit",
+  });
+  try {
+    fs.unlinkSync(tmpPs);
+  } catch {}
 
-  console.log("\n[SUCCESS] ROVI Print Engine is installed & active as a Windows Background Service!");
+  console.log(
+    "\n[SUCCESS] ROVI Print Engine is installed & active as a Windows Background Service!",
+  );
 } catch (err) {
   console.error("\n[ERROR] Service installation failed:", err.message);
   process.exit(1);

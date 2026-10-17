@@ -6,8 +6,16 @@ import { sendPusherEvent } from "@/lib/pusher";
 import { getStripData, fetchStripFromApi } from "@/lib/server-storage";
 import { getSettings, saveSettings, type Settings } from "@/lib/booth-storage";
 import { AdminPanel } from "@/components/AdminPanel";
+import { PrintModal } from "@/components/PrintModal";
 import { motion, AnimatePresence } from "framer-motion";
-import { Printer, RefreshCw, Download, QrCode, WifiOff, Settings as SettingsIcon } from "lucide-react";
+import {
+  Printer,
+  RefreshCw,
+  Download,
+  QrCode,
+  WifiOff,
+  Settings as SettingsIcon,
+} from "lucide-react";
 import { RobotFace } from "@/components/RobotFace";
 import QRCode from "qrcode";
 
@@ -20,7 +28,10 @@ export const Route = createFileRoute("/tablet")({
   head: () => ({
     meta: [
       { title: "ROVI Photo Booth — Tablet Remote" },
-      { name: "viewport", content: "width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" },
+      {
+        name: "viewport",
+        content: "width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no",
+      },
     ],
   }),
   component: TabletRemote,
@@ -51,6 +62,7 @@ function TabletRemote() {
   const [hasWebRtcVideo, setHasWebRtcVideo] = useState(false);
   const [currentStripId, setCurrentStripId] = useState<string | null>(null);
   const [isPrinting, setIsPrinting] = useState(false);
+  const [printModalOpen, setPrintModalOpen] = useState(false);
   const dismissedStripIdRef = useRef<string | null>(null);
 
   // Timestamps to prevent stale session polling overrides
@@ -133,7 +145,7 @@ function TabletRemote() {
       try {
         const res = await fetch(`/api/session?channel=${encodeURIComponent(channel)}`);
         if (!res.ok || !active) return;
-        const data = await res.json() as {
+        const data = (await res.json()) as {
           success: boolean;
           screen?: string;
           stripId?: string | null;
@@ -162,7 +174,7 @@ function TabletRemote() {
 
         // 2. Safe screen synchronization
         // Do NOT force reset to welcome if user locally started a capture session < 3 seconds ago
-        const isRecentlyStartedLocally = (Date.now() - localSessionStartTimeRef.current) < 3000;
+        const isRecentlyStartedLocally = Date.now() - localSessionStartTimeRef.current < 3000;
 
         if (remoteScreen === "welcome") {
           if (!isRecentlyStartedLocally && stateRef.current !== "welcome") {
@@ -176,9 +188,16 @@ function TabletRemote() {
           }
         } else if (remoteScreen === "camera" && stateRef.current === "welcome") {
           setState("camera");
-        } else if (remoteScreen === "processing" && (stateRef.current === "camera" || stateRef.current === "welcome")) {
+        } else if (
+          remoteScreen === "processing" &&
+          (stateRef.current === "camera" || stateRef.current === "welcome")
+        ) {
           setState("processing");
-        } else if (remoteScreen === "preview" && remoteStripId && remoteStripId !== dismissedStripIdRef.current) {
+        } else if (
+          remoteScreen === "preview" &&
+          remoteStripId &&
+          remoteStripId !== dismissedStripIdRef.current
+        ) {
           if (stateRef.current !== "preview" && !loadingRef.current) {
             loadingRef.current = true;
             setCurrentStripId(remoteStripId);
@@ -215,7 +234,10 @@ function TabletRemote() {
       stripUrl?: string;
     }) => {
       // Guard: Once preview screen is active or photo is ready, ignore stale 'processing' or 'camera' messages
-      if (stateRef.current === "preview" && (msg.screen === "processing" || msg.screen === "camera")) {
+      if (
+        stateRef.current === "preview" &&
+        (msg.screen === "processing" || msg.screen === "camera")
+      ) {
         return;
       }
 
@@ -322,7 +344,9 @@ function TabletRemote() {
   useEffect(() => {
     if (state !== "preview" || stripUrl) return;
     const timer = setTimeout(() => {
-      console.warn("[Tablet] Preview-without-strip watchdog fired — resetting to welcome after 12s");
+      console.warn(
+        "[Tablet] Preview-without-strip watchdog fired — resetting to welcome after 12s",
+      );
       setState("welcome");
       setStripUrl(null);
       setCurrentStripId(null);
@@ -388,8 +412,14 @@ function TabletRemote() {
       if (id && isDuplicateSignal(id, "SDP_OFFER", msg)) return;
 
       const existingPc = tabletPeerRef.current;
-      if (existingPc && (existingPc.connectionState === "connected" || existingPc.iceConnectionState === "connected")) {
-        console.log("[WebRTC] SDP offer received but connection is already active — skipping duplicate offer");
+      if (
+        existingPc &&
+        (existingPc.connectionState === "connected" ||
+          existingPc.iceConnectionState === "connected")
+      ) {
+        console.log(
+          "[WebRTC] SDP offer received but connection is already active — skipping duplicate offer",
+        );
         return;
       }
 
@@ -422,12 +452,15 @@ function TabletRemote() {
         if (remoteVideoRef.current && e.streams[0]) {
           remoteVideoRef.current.muted = true;
           remoteVideoRef.current.srcObject = e.streams[0];
-          remoteVideoRef.current.play().then(() => {
-            setHasWebRtcVideo(true);
-          }).catch((err) => {
-            // Silently catch transient play() interruptions (e.g. AbortError when video reloads)
-            console.warn("[WebRTC] Video play promise handled:", err?.message || err);
-          });
+          remoteVideoRef.current
+            .play()
+            .then(() => {
+              setHasWebRtcVideo(true);
+            })
+            .catch((err) => {
+              // Silently catch transient play() interruptions (e.g. AbortError when video reloads)
+              console.warn("[WebRTC] Video play promise handled:", err?.message || err);
+            });
         }
       };
 
@@ -446,7 +479,9 @@ function TabletRemote() {
         const answer = await pc.createAnswer();
         await pc.setLocalDescription(answer);
         console.log("[WebRTC] SDP answer sent to laptop");
-        postSignal("SDP_ANSWER", { sdp: { type: pc.localDescription!.type, sdp: pc.localDescription!.sdp } });
+        postSignal("SDP_ANSWER", {
+          sdp: { type: pc.localDescription!.type, sdp: pc.localDescription!.sdp },
+        });
       } catch (err) {
         console.warn("WebRTC answer failed on tablet:", err);
       }
@@ -478,8 +513,13 @@ function TabletRemote() {
             await new Promise((r) => setTimeout(r, 2500));
             continue;
           }
-          const res = await fetch(`/api/signal?channel=${encodeURIComponent(channel)}&since=${lastSignalTs}`);
-          if (!res.ok || !active) { await new Promise((r) => setTimeout(r, 500)); continue; }
+          const res = await fetch(
+            `/api/signal?channel=${encodeURIComponent(channel)}&since=${lastSignalTs}`,
+          );
+          if (!res.ok || !active) {
+            await new Promise((r) => setTimeout(r, 500));
+            continue;
+          }
           const json = await res.json();
           if (json.success && Array.isArray(json.signals)) {
             for (const item of json.signals) {
@@ -488,7 +528,9 @@ function TabletRemote() {
               if (item.type === "ICE_HOST") handleIceHost(item.data, item.id);
             }
           }
-        } catch { /* transient errors are fine */ }
+        } catch {
+          /* transient errors are fine */
+        }
         await new Promise((r) => setTimeout(r, 500));
       }
     };
@@ -527,8 +569,11 @@ function TabletRemote() {
         }
         try {
           const res = await fetch(`/api/frame?channel=${encodeURIComponent(channel)}`);
-          if (!res.ok || !active) { await new Promise((r) => setTimeout(r, 150)); continue; }
-          const data = await res.json() as { frame: string | null; ts?: number };
+          if (!res.ok || !active) {
+            await new Promise((r) => setTimeout(r, 150));
+            continue;
+          }
+          const data = (await res.json()) as { frame: string | null; ts?: number };
 
           // Explicit Guard: If frame is missing/null, skip update entirely
           if (!data.frame) {
@@ -545,14 +590,18 @@ function TabletRemote() {
           // Genuinely new frame received
           lastFrameTsRef.current = data.ts || Date.now();
           setSnapshotUrl(data.frame);
-        } catch { /* transient network errors — silently retry */ }
+        } catch {
+          /* transient network errors — silently retry */
+        }
         await new Promise((r) => setTimeout(r, 150));
       }
     };
 
     runFramePoll();
 
-    return () => { active = false; };
+    return () => {
+      active = false;
+    };
   }, [state, channel, hasWebRtcVideo]);
 
   const handleStart = () => {
@@ -618,45 +667,8 @@ function TabletRemote() {
     });
   };
 
-  const handlePrint = async () => {
-    if (isPrinting) return;
-    setIsPrinting(true);
-
-    let printData = stripUrl;
-    if (!printData && currentStripId) {
-      try {
-        const res = await getStripData({ data: currentStripId });
-        if (res?.success && res.dataUrl) printData = res.dataUrl;
-      } catch {}
-    }
-
-    // 1. Send direct print request to Nitro server API (/api/print)
-    fetch("/api/print", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        id: currentStripId,
-        dataUrl: printData,
-        printerName: settings.printerName || "DS-RX1",
-        printLayout,
-      }),
-    }).catch((err) => console.warn("[Tablet Print] Direct API call error:", err));
-
-    // 2. Trigger print on Laptop kiosk UI (where DNP DS-RX1 printer is physically connected)
-    triggerEvent("TRIGGER_PRINT", { id: currentStripId });
-
-    // 3. Post action: print to /api/session so Laptop receives print trigger even if SSE is offline
-    fetch(`/api/session?channel=${encodeURIComponent(channel)}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "print", stripId: currentStripId, stripDataUrl: printData }),
-    }).catch(() => {});
-
-    // 4. Auto-return tablet to Welcome screen after 3.5s in sync with Laptop
-    setTimeout(() => {
-      setIsPrinting(false);
-      handleGoHome();
-    }, 3500);
+  const handlePrint = () => {
+    setPrintModalOpen(true);
   };
 
   const handleRetake = () => {
@@ -685,10 +697,17 @@ function TabletRemote() {
     try {
       // Always fetch as blob — works for both data: URLs and http:// LAN/cloud URLs
       const blob = await (await fetch(stripUrl)).blob();
-      const file = new File([blob], `rovi-photo-${currentStripId || "strip"}.jpg`, { type: "image/jpeg" });
+      const file = new File([blob], `rovi-photo-${currentStripId || "strip"}.jpg`, {
+        type: "image/jpeg",
+      });
 
       // Mobile Web Share API — best on iOS Safari & Android Chrome
-      if (typeof navigator !== "undefined" && navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+      if (
+        typeof navigator !== "undefined" &&
+        navigator.share &&
+        navigator.canShare &&
+        navigator.canShare({ files: [file] })
+      ) {
         try {
           await navigator.share({
             title: "My ROVI Photo Strip",
@@ -718,9 +737,15 @@ function TabletRemote() {
     if (!stripUrl) return;
     const qrUrl = currentStripId
       ? `${window.location.origin}/photo/${currentStripId}`
-      : (stripUrl.startsWith("data:") ? window.location.origin : stripUrl);
+      : stripUrl.startsWith("data:")
+        ? window.location.origin
+        : stripUrl;
 
-    const dataUrl = await QRCode.toDataURL(qrUrl, { width: 512, margin: 2, color: { dark: "#000000", light: "#ffffff" } });
+    const dataUrl = await QRCode.toDataURL(qrUrl, {
+      width: 512,
+      margin: 2,
+      color: { dark: "#000000", light: "#ffffff" },
+    });
     setQr(dataUrl);
     setShowQR(true);
   };
@@ -731,7 +756,8 @@ function TabletRemote() {
         <WifiOff className="w-12 h-12 text-muted-foreground animate-bounce mb-4" />
         <h2 className="text-xl font-bold mb-1">Connecting to Booth…</h2>
         <p className="text-muted-foreground text-sm max-w-xs">
-          Waiting for server connection. Make sure your device is on the same Wi-Fi as the photo booth laptop.
+          Waiting for server connection. Make sure your device is on the same Wi-Fi as the photo
+          booth laptop.
         </p>
         <div className="text-xs text-muted-foreground/40 mt-6 font-mono">Channel: {channel}</div>
       </div>
@@ -741,9 +767,7 @@ function TabletRemote() {
   return (
     <div className="fixed inset-0 grid-bg overflow-hidden select-none">
       {/* Top-Level Studio White Camera Flash Overlay */}
-      {flash && (
-        <div className="fixed inset-0 bg-white z-[99999] pointer-events-none" />
-      )}
+      {flash && <div className="fixed inset-0 bg-white z-[99999] pointer-events-none" />}
 
       {/* Direct Remote Printing Status Overlay on Tablet */}
       <AnimatePresence>
@@ -769,7 +793,6 @@ function TabletRemote() {
       </div>
 
       <AnimatePresence>
-
         {/* ── WELCOME ── mirrors laptop Welcome screen exactly */}
         {state === "welcome" && (
           <button
@@ -783,7 +806,9 @@ function TabletRemote() {
             style={{ touchAction: "manipulation" }}
             className="absolute inset-0 w-full h-full flex flex-col items-center justify-center gap-8 px-6 text-center focus:outline-none cursor-pointer select-none active:scale-95 transition-transform duration-100"
           >
-            <div className="text-sm tracking-[0.4em] text-muted-foreground">{eventName.toUpperCase()}</div>
+            <div className="text-sm tracking-[0.4em] text-muted-foreground">
+              {eventName.toUpperCase()}
+            </div>
             <RobotFace size={240} />
             <motion.h1
               className="text-5xl sm:text-7xl md:text-8xl font-black neon-text"
@@ -801,16 +826,23 @@ function TabletRemote() {
         {state === "camera" && (
           <motion.div
             key="c"
-            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
             className="absolute inset-0 flex flex-col"
           >
             {/* Header */}
             <div className="flex items-center justify-between p-4">
-              <div className="text-sm tracking-widest text-muted-foreground">PHOTO {shotIdx + 1} / {numShots}</div>
+              <div className="text-sm tracking-widest text-muted-foreground">
+                PHOTO {shotIdx + 1} / {numShots}
+              </div>
               <button
                 type="button"
                 onClick={handleGoHome}
-                onTouchStart={(e) => { e.preventDefault(); handleGoHome(); }}
+                onTouchStart={(e) => {
+                  e.preventDefault();
+                  handleGoHome();
+                }}
                 style={{ touchAction: "manipulation" }}
                 className="p-2 rounded-full bg-card/60 border border-border text-sm px-4"
               >
@@ -821,10 +853,11 @@ function TabletRemote() {
             {/* Camera view area — live WebRTC stream from laptop */}
             <div className="flex-1 relative flex items-center justify-center px-4">
               <div className="relative w-full max-w-3xl aspect-[4/3] rounded-3xl overflow-hidden neon-border bg-black">
-
                 {/* Live camera stream from laptop via WebRTC */}
                 <video
-                  ref={(el) => { remoteVideoRef.current = el; }}
+                  ref={(el) => {
+                    remoteVideoRef.current = el;
+                  }}
                   autoPlay
                   playsInline
                   muted
@@ -858,7 +891,9 @@ function TabletRemote() {
                       >
                         📷
                       </motion.div>
-                      <p className="text-sm font-bold tracking-wider text-accent uppercase">Get Ready!</p>
+                      <p className="text-sm font-bold tracking-wider text-accent uppercase">
+                        Get Ready!
+                      </p>
                     </div>
                   </>
                 )}
@@ -875,7 +910,9 @@ function TabletRemote() {
                       className="absolute inset-0 flex items-center justify-center bg-black/30 z-20 pointer-events-none"
                       style={{ transform: "translateZ(0)", willChange: "transform, opacity" }}
                     >
-                      <div className="text-[14rem] sm:text-[18rem] font-black neon-text leading-none">{count}</div>
+                      <div className="text-[14rem] sm:text-[18rem] font-black neon-text leading-none">
+                        {count}
+                      </div>
                     </motion.div>
                   )}
                 </AnimatePresence>
@@ -896,7 +933,8 @@ function TabletRemote() {
               </motion.div>
               <div className="mt-2 flex justify-center gap-2">
                 {Array.from({ length: numShots }).map((_, i) => (
-                  <div key={i}
+                  <div
+                    key={i}
                     className={`h-2 w-10 rounded-full transition ${
                       i < shotIdx ? "bg-primary" : i === shotIdx ? "bg-accent" : "bg-secondary"
                     }`}
@@ -911,7 +949,9 @@ function TabletRemote() {
         {state === "processing" && (
           <motion.div
             key="p"
-            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
             className="absolute inset-0 flex flex-col items-center justify-center gap-8 px-6 text-center"
           >
             <RobotFace size={220} />
@@ -920,7 +960,8 @@ function TabletRemote() {
               <motion.div
                 className="h-full"
                 style={{ background: "linear-gradient(90deg, var(--neon), var(--neon-2))" }}
-                initial={{ width: "5%" }} animate={{ width: ["5%", "85%", "100%"] }}
+                initial={{ width: "5%" }}
+                animate={{ width: ["5%", "85%", "100%"] }}
                 transition={{ duration: 1.6, times: [0, 0.8, 1] }}
               />
             </div>
@@ -932,12 +973,15 @@ function TabletRemote() {
         {state === "preview" && stripUrl && (
           <motion.div
             key="pv"
-            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
             className="absolute inset-0 flex flex-col lg:flex-row items-center justify-center gap-6 p-4 sm:p-8 overflow-y-auto"
           >
             {/* Strip image with spring animation — same as laptop */}
             <motion.div
-              initial={{ scale: 0.7, rotate: -4 }} animate={{ scale: 1, rotate: 0 }}
+              initial={{ scale: 0.7, rotate: -4 }}
+              animate={{ scale: 1, rotate: 0 }}
               transition={{ type: "spring", stiffness: 120, damping: 14 }}
               className="shrink-0"
             >
@@ -961,33 +1005,72 @@ function TabletRemote() {
                 transition={{ delay: 0.3 }}
                 className="p-3 rounded-2xl text-xs leading-normal border text-center font-medium shadow-md bg-primary/10 border-primary/20 text-primary"
               >
-                📢 <strong>Hint:</strong> If you want to print your photos, please click on the <strong>Print Photo</strong> button below!
+                📢 <strong>Hint:</strong> If you want to print your photos, please click on the{" "}
+                <strong>Print Photo</strong> button below!
               </motion.div>
 
-              <TabletBigBtn onClick={handleRetake} icon={<RefreshCw />} label="Retake Photos" tone="secondary" />
-              {enablePrint && <TabletBigBtn onClick={handlePrint} icon={<Printer />} label="Print Photo" tone="primary" />}
-              <TabletBigBtn onClick={handleDownload} icon={<Download />} label="Download" tone="secondary" />
-              {enableQR && <TabletBigBtn onClick={handleQR} icon={<QrCode />} label="Generate QR Code" tone="accent" />}
-              <button onClick={handleGoHome} className="mt-2 text-muted-foreground hover:text-foreground py-2">← Back to start</button>
+              <TabletBigBtn
+                onClick={handleRetake}
+                icon={<RefreshCw />}
+                label="Retake Photos"
+                tone="secondary"
+              />
+              {enablePrint && (
+                <TabletBigBtn
+                  onClick={handlePrint}
+                  icon={<Printer />}
+                  label="Print Photo"
+                  tone="primary"
+                />
+              )}
+              <TabletBigBtn
+                onClick={handleDownload}
+                icon={<Download />}
+                label="Download"
+                tone="secondary"
+              />
+              {enableQR && (
+                <TabletBigBtn
+                  onClick={handleQR}
+                  icon={<QrCode />}
+                  label="Generate QR Code"
+                  tone="accent"
+                />
+              )}
+              <button
+                onClick={handleGoHome}
+                className="mt-2 text-muted-foreground hover:text-foreground py-2"
+              >
+                ← Back to start
+              </button>
             </div>
 
             {/* QR modal */}
             <AnimatePresence>
               {showQR && qr && (
                 <motion.div
-                  initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
                   className="fixed inset-0 z-50 bg-black/80 backdrop-blur flex items-center justify-center p-6"
                   onClick={() => setShowQR(false)}
                 >
                   <motion.div
-                    initial={{ scale: 0.8 }} animate={{ scale: 1 }} exit={{ scale: 0.8 }}
+                    initial={{ scale: 0.8 }}
+                    animate={{ scale: 1 }}
+                    exit={{ scale: 0.8 }}
                     onClick={(e) => e.stopPropagation()}
                     className="bg-card neon-border rounded-2xl p-8 max-w-sm w-full text-center"
                   >
                     <h3 className="text-3xl font-black neon-text mb-2">Scan To Download</h3>
-                    <p className="text-muted-foreground text-sm mb-4">Open camera on your phone and scan</p>
+                    <p className="text-muted-foreground text-sm mb-4">
+                      Open camera on your phone and scan
+                    </p>
                     <img src={qr} alt="QR" className="w-full rounded-xl bg-white p-3" />
-                    <button onClick={() => setShowQR(false)} className="mt-5 w-full bg-primary text-primary-foreground rounded-xl py-3 font-bold">
+                    <button
+                      onClick={() => setShowQR(false)}
+                      className="mt-5 w-full bg-primary text-primary-foreground rounded-xl py-3 font-bold"
+                    >
                       Done
                     </button>
                   </motion.div>
@@ -1001,7 +1084,9 @@ function TabletRemote() {
         {state === "preview" && !stripUrl && (
           <motion.div
             key="pv-wait"
-            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
             className="absolute inset-0 flex flex-col items-center justify-center gap-8 px-6 text-center"
           >
             <RobotFace size={220} />
@@ -1011,7 +1096,12 @@ function TabletRemote() {
                 className="h-full"
                 style={{ background: "linear-gradient(90deg, var(--neon), var(--neon-2))" }}
                 animate={{ width: ["5%", "90%"] }}
-                transition={{ duration: 4, ease: "easeInOut", repeat: Infinity, repeatType: "reverse" }}
+                transition={{
+                  duration: 4,
+                  ease: "easeInOut",
+                  repeat: Infinity,
+                  repeatType: "reverse",
+                }}
               />
             </div>
             <div className="text-muted-foreground">AI is composing your memory…</div>
@@ -1041,13 +1131,55 @@ function TabletRemote() {
           triggerEvent("SETTINGS_UPDATE", newSettings);
         }}
       />
+
+      <PrintModal
+        open={printModalOpen}
+        onClose={() => setPrintModalOpen(false)}
+        strip={stripUrl ? { id: currentStripId || "strip", dataUrl: stripUrl } : null}
+        settings={settings}
+        isKiosk={false}
+        onRemotePrintSpool={(stripId, dataUrl, copies) => {
+          // 1. Send direct print request to Nitro server API (/api/print)
+          fetch("/api/print", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              id: stripId,
+              dataUrl,
+              printerName: settings.printerName || "DS-RX1",
+              printLayout,
+              copies,
+            }),
+          }).catch((err) => console.warn("[Tablet Print] Direct API call error:", err));
+
+          // 2. Trigger print on Laptop kiosk UI (where DNP DS-RX1 printer is physically connected)
+          triggerEvent("TRIGGER_PRINT", { id: stripId, copies });
+
+          // 3. Post action: print to /api/session so Laptop receives print trigger even if SSE is offline
+          fetch(`/api/session?channel=${encodeURIComponent(channel)}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ action: "print", stripId, stripDataUrl: dataUrl }),
+          }).catch(() => {});
+        }}
+      />
     </div>
   );
 }
 
 function TabletBigBtn({
-  onClick, icon, label, tone, disabled,
-}: { onClick: () => void; icon: React.ReactNode; label: string; tone: "primary" | "secondary" | "accent"; disabled?: boolean }) {
+  onClick,
+  icon,
+  label,
+  tone,
+  disabled,
+}: {
+  onClick: () => void;
+  icon: React.ReactNode;
+  label: string;
+  tone: "primary" | "secondary" | "accent";
+  disabled?: boolean;
+}) {
   const styles =
     tone === "primary"
       ? "bg-primary text-primary-foreground"
@@ -1062,7 +1194,9 @@ function TabletBigBtn({
     if (touchedRef.current || disabled) return;
     touchedRef.current = true;
     onClick();
-    setTimeout(() => { touchedRef.current = false; }, 400);
+    setTimeout(() => {
+      touchedRef.current = false;
+    }, 400);
   };
 
   const handleClick = (e: React.MouseEvent) => {
@@ -1079,7 +1213,8 @@ function TabletBigBtn({
       style={{ touchAction: "manipulation" }}
       className={`flex items-center justify-center gap-3 rounded-2xl py-5 px-5 text-xl font-bold shadow-lg active:scale-95 transition-transform ${styles} ${disabled ? "opacity-50 cursor-not-allowed" : "cursor-pointer select-none"}`}
     >
-      {icon}<span>{label}</span>
+      {icon}
+      <span>{label}</span>
     </button>
   );
 }

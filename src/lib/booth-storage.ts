@@ -73,9 +73,8 @@ export function getSettings(): Settings {
 
     const cleaned: any = {};
     for (const key of Object.keys(DEFAULTS) as Array<keyof Settings>) {
-      cleaned[key] = (parsed[key] !== undefined && parsed[key] !== null)
-        ? parsed[key]
-        : DEFAULTS[key];
+      cleaned[key] =
+        parsed[key] !== undefined && parsed[key] !== null ? parsed[key] : DEFAULTS[key];
     }
     return cleaned as Settings;
   } catch {
@@ -90,7 +89,11 @@ export type StripRecord = { id: string; dataUrl: string; createdAt: number; even
 
 export function listStrips(): StripRecord[] {
   if (!isBrowser()) return [];
-  try { return JSON.parse(localStorage.getItem(STRIPS_KEY) || "[]"); } catch { return []; }
+  try {
+    return JSON.parse(localStorage.getItem(STRIPS_KEY) || "[]");
+  } catch {
+    return [];
+  }
 }
 export function saveStrip(rec: StripRecord) {
   if (!isBrowser()) return;

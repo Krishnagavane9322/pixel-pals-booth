@@ -74,14 +74,26 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
       { title: "ROVI SnapBooth" },
-      { name: "description", content: "ROVI SnapBooth is a full-screen, touch-enabled web application for event photo booths." },
+      {
+        name: "description",
+        content:
+          "ROVI SnapBooth is a full-screen, touch-enabled web application for event photo booths.",
+      },
       { name: "author", content: "ROVI" },
       { property: "og:title", content: "ROVI SnapBooth" },
-      { property: "og:description", content: "ROVI SnapBooth is a full-screen, touch-enabled web application for event photo booths." },
+      {
+        property: "og:description",
+        content:
+          "ROVI SnapBooth is a full-screen, touch-enabled web application for event photo booths.",
+      },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
       { name: "twitter:title", content: "ROVI SnapBooth" },
-      { name: "twitter:description", content: "ROVI SnapBooth is a full-screen, touch-enabled web application for event photo booths." },
+      {
+        name: "twitter:description",
+        content:
+          "ROVI SnapBooth is a full-screen, touch-enabled web application for event photo booths.",
+      },
     ],
     links: [
       {

@@ -15,7 +15,10 @@ export function RobotFace({ size = 280 }: { size?: number }) {
       setBlink(true);
       setTimeout(() => setBlink(false), 140);
     }, 3200);
-    return () => { clearInterval(m); clearInterval(b); };
+    return () => {
+      clearInterval(m);
+      clearInterval(b);
+    };
   }, []);
 
   // Use a stable size for SSR; update only after mount to avoid hydration mismatch
@@ -45,13 +48,21 @@ export function RobotFace({ size = 280 }: { size?: number }) {
           animate={{ scale: [1, 1.4, 1], opacity: [1, 0.6, 1] }}
           transition={{ duration: 1.4, repeat: Infinity }}
         />
-        <div className="w-0.5 h-7" style={{ background: "color-mix(in oklab, var(--neon) 60%, transparent)" }} />
+        <div
+          className="w-0.5 h-7"
+          style={{ background: "color-mix(in oklab, var(--neon) 60%, transparent)" }}
+        />
       </div>
 
       {/* eyes */}
       <div className="absolute inset-0 flex items-center justify-center gap-[18%]">
         {[0, 1].map((i) => (
-          <div key={i} suppressHydrationWarning className="relative" style={{ width: eyeSize, height: eyeSize }}>
+          <div
+            key={i}
+            suppressHydrationWarning
+            className="relative"
+            style={{ width: eyeSize, height: eyeSize }}
+          >
             <div
               className="absolute inset-0 rounded-full"
               style={{
@@ -62,7 +73,10 @@ export function RobotFace({ size = 280 }: { size?: number }) {
             <motion.div
               className="absolute rounded-full"
               style={{
-                left: "20%", top: "20%", width: "60%", height: "60%",
+                left: "20%",
+                top: "20%",
+                width: "60%",
+                height: "60%",
                 background: "radial-gradient(circle, var(--neon) 0%, transparent 70%)",
                 filter: "blur(2px)",
               }}
@@ -72,7 +86,10 @@ export function RobotFace({ size = 280 }: { size?: number }) {
             <motion.div
               className="absolute rounded-full"
               style={{
-                left: "32%", top: "32%", width: "36%", height: "36%",
+                left: "32%",
+                top: "32%",
+                width: "36%",
+                height: "36%",
                 background: "var(--neon)",
                 boxShadow: "0 0 22px var(--neon)",
               }}

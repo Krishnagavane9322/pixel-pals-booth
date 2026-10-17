@@ -34,9 +34,7 @@ export default defineHandler(async (event) => {
 
       // Immediately confirm connection so the client sets connected = true
       controller.enqueue(
-        encoder.encode(
-          `data: ${JSON.stringify({ event: "__connected__", data: {} })}\n\n`,
-        ),
+        encoder.encode(`data: ${JSON.stringify({ event: "__connected__", data: {} })}\n\n`),
       );
     },
     cancel() {

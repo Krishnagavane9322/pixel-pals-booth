@@ -5,6 +5,7 @@
 ---
 
 ## 1. Tech Stack Overview
+
 - **Framework**: TanStack Start (SSR + Server Functions) with React 19 & Vite
 - **Server Engine**: Nitro (`nitro/vite`) with `h3` v2
 - **Styling & UI**: TailwindCSS, Framer Motion, Lucide Icons

@@ -18,7 +18,10 @@ try {
     }
   `;
 
-  execSync(`powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "${psScript.replace(/\n/g, " ")}"`, { stdio: "inherit" });
+  execSync(
+    `powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "${psScript.replace(/\n/g, " ")}"`,
+    { stdio: "inherit" },
+  );
   console.log("\n[SUCCESS] ROVI Print Engine service uninstalled cleanly.");
 } catch (err) {
   console.error("\n[WARNING] Service uninstall error:", err.message);

@@ -91,7 +91,9 @@ export const uploadPhoto = createServerFn({ method: "POST" })
     const data = rawPayload?.data ?? rawPayload;
     // Check if token exists, if not fall back to local disk storage
     if (!process.env.BLOB_READ_WRITE_TOKEN) {
-      console.warn("BLOB_READ_WRITE_TOKEN environment variable is not defined. Saving to local public/photos/.");
+      console.warn(
+        "BLOB_READ_WRITE_TOKEN environment variable is not defined. Saving to local public/photos/.",
+      );
       try {
         const base64Data = data.dataUrl.split(",")[1];
         const buffer = Buffer.from(base64Data, "base64");
@@ -210,7 +212,7 @@ export const getCloudPhoto = createServerFn({ method: "GET" })
       }
 
       const blobInfo = blobs[0];
-      
+
       let eventName = "ROVI Live Event";
       let createdAt = blobInfo.uploadedAt ? blobInfo.uploadedAt.getTime() : Date.now();
 

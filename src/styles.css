@@ -60,31 +60,56 @@
   --panel: oklch(0.19 0.04 265);
 }
 
-.dark { color-scheme: dark; }
+.dark {
+  color-scheme: dark;
+}
 
 @layer base {
-  html, body, #root { height: 100%; }
-  * { border-color: var(--color-border); }
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+  * {
+    border-color: var(--color-border);
+  }
   body {
     background:
-      radial-gradient(1200px 600px at 10% -10%, color-mix(in oklab, var(--neon) 18%, transparent), transparent 60%),
-      radial-gradient(1000px 500px at 110% 110%, color-mix(in oklab, var(--neon-2) 18%, transparent), transparent 60%),
+      radial-gradient(
+        1200px 600px at 10% -10%,
+        color-mix(in oklab, var(--neon) 18%, transparent),
+        transparent 60%
+      ),
+      radial-gradient(
+        1000px 500px at 110% 110%,
+        color-mix(in oklab, var(--neon-2) 18%, transparent),
+        transparent 60%
+      ),
       var(--color-background);
     color: var(--color-foreground);
-    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+    font-family:
+      ui-sans-serif,
+      system-ui,
+      -apple-system,
+      "Segoe UI",
+      Roboto,
+      "Helvetica Neue",
+      Arial;
     overflow: hidden;
   }
 }
 
 @utility neon-text {
   color: var(--neon);
-  text-shadow: 0 0 12px color-mix(in oklab, var(--neon) 70%, transparent),
-               0 0 32px color-mix(in oklab, var(--neon) 35%, transparent);
+  text-shadow:
+    0 0 12px color-mix(in oklab, var(--neon) 70%, transparent),
+    0 0 32px color-mix(in oklab, var(--neon) 35%, transparent);
 }
 @utility neon-border {
   border: 1px solid color-mix(in oklab, var(--neon) 60%, transparent);
-  box-shadow: 0 0 24px color-mix(in oklab, var(--neon) 25%, transparent),
-              inset 0 0 24px color-mix(in oklab, var(--neon) 10%, transparent);
+  box-shadow:
+    0 0 24px color-mix(in oklab, var(--neon) 25%, transparent),
+    inset 0 0 24px color-mix(in oklab, var(--neon) 10%, transparent);
 }
 @utility grid-bg {
   background-image:
@@ -94,21 +119,35 @@
   mask-image: radial-gradient(ellipse at center, black 40%, transparent 80%);
 }
 
-/* ---- Print mode: only show the strip image, hide everything else ---- */
+/* ---- Print mode: clean print support ---- */
 @media print {
-  body > *:not(#rovi-print-overlay) { display: none !important; }
+  @page {
+    margin: 0;
+    size: auto;
+  }
+  html,
+  body {
+    background: #ffffff !important;
+    color: #000000 !important;
+    width: 100% !important;
+    height: 100% !important;
+  }
+  /* If rovi-print-overlay exists, prioritize it */
+  body:has(#rovi-print-overlay) > *:not(#rovi-print-overlay) {
+    display: none !important;
+  }
   #rovi-print-overlay {
-    display: block !important;
+    display: flex !important;
     position: fixed !important;
     inset: 0 !important;
     background: #fff !important;
+    align-items: center !important;
+    justify-content: center !important;
     z-index: 99999 !important;
   }
   #rovi-print-overlay img {
-    display: block !important;
-    width: 100vw !important;
-    height: 100vh !important;
-    object-fit: fill !important;
+    max-width: 100% !important;
+    max-height: 100% !important;
+    object-fit: contain !important;
   }
-  @page { margin: 0; }
 }

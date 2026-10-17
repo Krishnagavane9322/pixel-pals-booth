@@ -2,11 +2,26 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import QRCode from "qrcode";
-import { Camera, Printer, QrCode, RefreshCw, Download, Settings as SettingsIcon, X } from "lucide-react";
+import {
+  Camera,
+  Printer,
+  QrCode,
+  RefreshCw,
+  Download,
+  Settings as SettingsIcon,
+  X,
+} from "lucide-react";
 import { RobotFace } from "@/components/RobotFace";
 import { AdminPanel } from "@/components/AdminPanel";
+import { PrintModal } from "@/components/PrintModal";
 import {
-  getSettings, saveSettings, saveStrip, uid, logPrint, logDownload, type Settings,
+  getSettings,
+  saveSettings,
+  saveStrip,
+  uid,
+  logPrint,
+  logDownload,
+  type Settings,
 } from "@/lib/booth-storage";
 import { buildStrip, captureFromVideo } from "@/lib/strip";
 import { uploadPhoto, storeStripData, uploadStripToApi } from "@/lib/server-storage";
@@ -24,8 +39,15 @@ export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
       { title: "ROVI AI Photo Booth Kiosk" },
-      { name: "description", content: "Touch-screen AI photo booth kiosk for events — capture, print, and share photo strips instantly." },
-      { name: "viewport", content: "width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" },
+      {
+        name: "description",
+        content:
+          "Touch-screen AI photo booth kiosk for events — capture, print, and share photo strips instantly.",
+      },
+      {
+        name: "viewport",
+        content: "width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no",
+      },
     ],
   }),
   component: Kiosk,
@@ -49,14 +71,20 @@ function Kiosk() {
 
   const printTriggerRef = useRef<(() => void) | null>(null);
   const [tabletQr, setTabletQr] = useState<string>("");
-  const [cameraState, setCameraState] = useState<{ count: number | null; shotIdx: number; flash: boolean }>({
+  const [cameraState, setCameraState] = useState<{
+    count: number | null;
+    shotIdx: number;
+    flash: boolean;
+  }>({
     count: null,
     shotIdx: 0,
     flash: false,
   });
 
   // Refresh settings whenever we leave admin
-  useEffect(() => { if (!adminOpen) setSettings(getSettings()); }, [adminOpen]);
+  useEffect(() => {
+    if (!adminOpen) setSettings(getSettings());
+  }, [adminOpen]);
 
   // Hidden admin: triple-tap top-left corner OR press 'A'
   const tapsRef = useRef<number[]>([]);
@@ -69,7 +97,9 @@ function Kiosk() {
     }
   };
   useEffect(() => {
-    const k = (e: KeyboardEvent) => { if (e.key.toLowerCase() === "a" && e.shiftKey) setAdminOpen(true); };
+    const k = (e: KeyboardEvent) => {
+      if (e.key.toLowerCase() === "a" && e.shiftKey) setAdminOpen(true);
+    };
     window.addEventListener("keydown", k);
     return () => window.removeEventListener("keydown", k);
   }, []);
@@ -86,11 +116,21 @@ function Kiosk() {
   // ── Persist kiosk state to /api/session so tablet can poll it ───────────────
   // This is the reliable fallback when SSE events are lost (Vercel Serverless
   // cold-start isolation). The tablet polls /api/session every second.
-  const postSessionState = (screen: Screen, stripId: string | null, action?: string | null, stripDataUrl?: string | null) => {
+  const postSessionState = (
+    screen: Screen,
+    stripId: string | null,
+    action?: string | null,
+    stripDataUrl?: string | null,
+  ) => {
     fetch(`/api/session?channel=${encodeURIComponent(channel)}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ screen, stripId, action: action || null, stripDataUrl: stripDataUrl || null }),
+      body: JSON.stringify({
+        screen,
+        stripId,
+        action: action || null,
+        stripDataUrl: stripDataUrl || null,
+      }),
     }).catch(() => {});
   };
 
@@ -159,9 +199,7 @@ function Kiosk() {
   useEffect(() => {
     if (typeof window !== "undefined") {
       const url = `${window.location.origin}/tablet?channel=${channel}`;
-      QRCode.toDataURL(url, { width: 256, margin: 2 })
-        .then(setTabletQr)
-        .catch(console.error);
+      QRCode.toDataURL(url, { width: 256, margin: 2 }).then(setTabletQr).catch(console.error);
     }
   }, [channel]);
 
@@ -182,7 +220,9 @@ function Kiosk() {
     const initCamera = async () => {
       try {
         if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
-          console.warn("[Camera Pre-warm] Camera access unavailable (Insecure HTTP connection or missing mediaDevices API)");
+          console.warn(
+            "[Camera Pre-warm] Camera access unavailable (Insecure HTTP connection or missing mediaDevices API)",
+          );
           return;
         }
         const videoConstraints: MediaTrackConstraints = {
@@ -195,9 +235,15 @@ function Kiosk() {
           videoConstraints.facingMode = "user";
         }
         try {
-          stream = await navigator.mediaDevices.getUserMedia({ video: videoConstraints, audio: false });
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: videoConstraints,
+            audio: false,
+          });
         } catch (constraintErr) {
-          console.warn("[Camera Pre-warm] Ideal constraints failed, falling back to default video:", constraintErr);
+          console.warn(
+            "[Camera Pre-warm] Ideal constraints failed, falling back to default video:",
+            constraintErr,
+          );
           stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
         }
         (window as any).__roviCameraStream = stream;
@@ -220,7 +266,9 @@ function Kiosk() {
   // Bind kiosk control events from the tablet remote over SSE
   useEffect(() => {
     const handleStart = () => start();
-    const handlePrint = () => { if (printTriggerRef.current) printTriggerRef.current(); };
+    const handlePrint = () => {
+      if (printTriggerRef.current) printTriggerRef.current();
+    };
     const handleGoHome = () => {
       stopSpeaking();
       setPhotos([]);
@@ -254,15 +302,14 @@ function Kiosk() {
     // Only send stripUrl if it's a lightweight cloud URL (Vercel Blob).
     // Large base64 strings are omitted from sendPusherEvent to keep HTTP POST payloads <200 bytes.
     // Tablet fetches the full image via getStripData(stripId) server function.
-    const currentStripUrl = strip?.dataUrl && !strip.dataUrl.startsWith("data:")
-      ? strip.dataUrl
-      : null;
+    const currentStripUrl =
+      strip?.dataUrl && !strip.dataUrl.startsWith("data:") ? strip.dataUrl : null;
 
     sendPusherEvent({
       data: {
         channel,
         event: "STATE_CHANGE",
-        data: { 
+        data: {
           screen,
           count: screen === "camera" ? cameraState.count : null,
           shotIdx: screen === "camera" ? cameraState.shotIdx : 0,
@@ -283,51 +330,53 @@ function Kiosk() {
     postSessionState(screen, strip?.id || null);
   }, [screen, cameraState, channel, settings, strip]);
 
-  const onCapturedAll = useCallback(async (imgs: string[]) => {
-    setPhotos(imgs);
-    setScreen("processing");
+  const onCapturedAll = useCallback(
+    async (imgs: string[]) => {
+      setPhotos(imgs);
+      setScreen("processing");
 
-    const id = uid();
-    const s = getSettings();
+      const id = uid();
+      const s = getSettings();
 
-    // 1. Build the photo strip canvas (hard 5s timeout safety guard)
-    let dataUrl: string;
-    try {
-      const buildPromise = buildStrip(imgs, s);
-      const timeoutPromise = new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error("Strip build timeout")), 5000)
+      // 1. Build the photo strip canvas (hard 5s timeout safety guard)
+      let dataUrl: string;
+      try {
+        const buildPromise = buildStrip(imgs, s);
+        const timeoutPromise = new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error("Strip build timeout")), 5000),
+        );
+        dataUrl = await Promise.race([buildPromise, timeoutPromise]);
+      } catch (err) {
+        console.error("[Strip] buildStrip failed — fallback to first capture:", err);
+        dataUrl = imgs[0] ?? "";
+      }
+
+      // 2. Set state & transition laptop UI to preview IMMEDIATELY
+      setStrip({ id, dataUrl });
+      setScreen("preview");
+
+      // 3. Save locally in browser localStorage (guarded against QuotaExceededError)
+      saveStrip({ id, dataUrl, createdAt: Date.now(), eventName: s.eventName });
+
+      // 4. Update /api/session so tablet knows the strip is ready & print agent can poll image directly
+      postSessionState("preview", id, null, dataUrl);
+
+      // 5. Background upload to Nitro API (/api/strip) — non-blocking
+      uploadStripToApi(id, dataUrl).catch((err) =>
+        console.warn("Background strip upload warning:", err),
       );
-      dataUrl = await Promise.race([buildPromise, timeoutPromise]);
-    } catch (err) {
-      console.error("[Strip] buildStrip failed — fallback to first capture:", err);
-      dataUrl = imgs[0] ?? "";
-    }
 
-    // 2. Set state & transition laptop UI to preview IMMEDIATELY
-    setStrip({ id, dataUrl });
-    setScreen("preview");
-
-    // 3. Save locally in browser localStorage (guarded against QuotaExceededError)
-    saveStrip({ id, dataUrl, createdAt: Date.now(), eventName: s.eventName });
-
-    // 4. Update /api/session so tablet knows the strip is ready & print agent can poll image directly
-    postSessionState("preview", id, null, dataUrl);
-
-    // 5. Background upload to Nitro API (/api/strip) — non-blocking
-    uploadStripToApi(id, dataUrl).catch((err) =>
-      console.warn("Background strip upload warning:", err)
-    );
-
-    // 6. Broadcast PHOTO_READY over P2P DataChannel if tablet is connected
-    sendPusherEvent({
-      data: {
-        channel,
-        event: "PHOTO_READY",
-        data: { id, dataUrl },
-      },
-    }).catch(() => {});
-  }, [channel]);
-
+      // 6. Broadcast PHOTO_READY over P2P DataChannel if tablet is connected
+      sendPusherEvent({
+        data: {
+          channel,
+          event: "PHOTO_READY",
+          data: { id, dataUrl },
+        },
+      }).catch(() => {});
+    },
+    [channel],
+  );
 
   return (
     <div className="fixed inset-0 grid-bg overflow-hidden select-none">
@@ -353,11 +402,17 @@ function Kiosk() {
       <AnimatePresence mode="wait">
         {screen === "welcome" && <Welcome key="w" onStart={start} settings={settings} />}
         {screen === "camera" && (
-          <CameraScreen 
-            key="c" 
-            settings={settings} 
-            onDone={onCapturedAll} 
-            onCancel={() => { stopSpeaking(); setPhotos([]); setStrip(null); setScreen("welcome"); postSessionState("welcome", null); }} 
+          <CameraScreen
+            key="c"
+            settings={settings}
+            onDone={onCapturedAll}
+            onCancel={() => {
+              stopSpeaking();
+              setPhotos([]);
+              setStrip(null);
+              setScreen("welcome");
+              postSessionState("welcome", null);
+            }}
             onStateChange={setCameraState}
             pusherChannelRef={pusherChannelRef}
             channelName={channel}
@@ -365,22 +420,33 @@ function Kiosk() {
         )}
         {screen === "processing" && <Processing key="p" settings={settings} />}
         {screen === "preview" && strip && (
-          <Preview 
-            key="pv" 
-            strip={strip} 
-            settings={settings} 
-            onRetake={() => { stopSpeaking(); start(); }} 
-            onHome={() => { stopSpeaking(); setPhotos([]); setStrip(null); setScreen("welcome"); postSessionState("welcome", null); }} 
+          <Preview
+            key="pv"
+            strip={strip}
+            settings={settings}
+            onRetake={() => {
+              stopSpeaking();
+              start();
+            }}
+            onHome={() => {
+              stopSpeaking();
+              setPhotos([]);
+              setStrip(null);
+              setScreen("welcome");
+              postSessionState("welcome", null);
+            }}
             printTriggerRef={printTriggerRef}
           />
         )}
       </AnimatePresence>
 
-      <AdminPanel 
-        open={adminOpen} 
-        onClose={() => setAdminOpen(false)} 
+      <AdminPanel
+        open={adminOpen}
+        onClose={() => setAdminOpen(false)}
         tabletQr={tabletQr}
-        tabletUrl={typeof window !== "undefined" ? `${window.location.origin}/tablet?channel=${channel}` : ""}
+        tabletUrl={
+          typeof window !== "undefined" ? `${window.location.origin}/tablet?channel=${channel}` : ""
+        }
         onSave={(newSettings) => {
           setSettings(newSettings);
           sendPusherEvent({
@@ -409,11 +475,15 @@ function Welcome({ onStart, settings }: { onStart: () => void; settings: Setting
 
   return (
     <motion.button
-      initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
       onClick={onStart}
       className="absolute inset-0 w-full h-full flex flex-col items-center justify-center gap-8 px-6 text-center"
     >
-      <div className="text-sm tracking-[0.4em] text-muted-foreground">{settings.eventName.toUpperCase()}</div>
+      <div className="text-sm tracking-[0.4em] text-muted-foreground">
+        {settings.eventName.toUpperCase()}
+      </div>
       <RobotFace size={size} />
       <motion.h1
         className="text-5xl sm:text-7xl md:text-8xl font-black neon-text"
@@ -470,9 +540,10 @@ function getSoftwareCameraFilters(settings: Settings, caps: any) {
     tintHue = -(settings.tint / 50) * 12; // max ±12deg rotation
   }
 
-  const filters: string[] = [`brightness(${brightness.toFixed(2)})` ];
+  const filters: string[] = [`brightness(${brightness.toFixed(2)})`];
   if (sepia > 0) filters.push(`sepia(${sepia.toFixed(3)})`);
-  if (hueRotate !== 0 || tintHue !== 0) filters.push(`hue-rotate(${(hueRotate + tintHue).toFixed(1)}deg)`);
+  if (hueRotate !== 0 || tintHue !== 0)
+    filters.push(`hue-rotate(${(hueRotate + tintHue).toFixed(1)}deg)`);
   if (saturation !== 1) filters.push(`saturate(${saturation.toFixed(2)})`);
 
   const cssFilter = filters.join(" ");
@@ -482,7 +553,12 @@ function getSoftwareCameraFilters(settings: Settings, caps: any) {
 
 /* -------------------- Camera -------------------- */
 function CameraScreen({
-  settings, onDone, onCancel, onStateChange, pusherChannelRef, channelName,
+  settings,
+  onDone,
+  onCancel,
+  onStateChange,
+  pusherChannelRef,
+  channelName,
 }: {
   settings: Settings;
   onDone: (imgs: string[]) => void;
@@ -570,7 +646,9 @@ function CameraScreen({
         const offer = await pc.createOffer();
         await pc.setLocalDescription(offer);
         if (!active) return;
-        postSignal("SDP_OFFER", { sdp: { type: pc.localDescription!.type, sdp: pc.localDescription!.sdp } });
+        postSignal("SDP_OFFER", {
+          sdp: { type: pc.localDescription!.type, sdp: pc.localDescription!.sdp },
+        });
         console.log("[WebRTC] SDP offer sent to tablet via /api/signal & P2P");
 
         // Configure video sender for high-quality encoding after offer is created
@@ -581,13 +659,16 @@ function CameraScreen({
             if (!params.encodings || params.encodings.length === 0) {
               params.encodings = [{}];
             }
-            params.encodings[0].maxBitrate = 2_500_000;  // 2.5 Mbps for sharp 720p
+            params.encodings[0].maxBitrate = 2_500_000; // 2.5 Mbps for sharp 720p
             params.encodings[0].maxFramerate = 30;
             params.encodings[0].scaleResolutionDownBy = 1; // no downscaling
             await sender.setParameters(params);
             console.log("[WebRTC] Video sender encoding configured: 2.5Mbps@30fps");
           } catch (encErr) {
-            console.warn("[WebRTC] Could not set sender parameters (will retry after answer):", encErr);
+            console.warn(
+              "[WebRTC] Could not set sender parameters (will retry after answer):",
+              encErr,
+            );
           }
         }
       } catch (err) {
@@ -600,15 +681,26 @@ function CameraScreen({
     const handleViewerReady = (id?: string) => {
       if (id && isDuplicateSignal(id, "VIEWER_READY")) return;
       const pc = peerRef.current;
-      if (pc && (pc.connectionState === "connected" || pc.connectionState === "connecting" || pc.iceConnectionState === "connected" || pc.iceConnectionState === "checking")) {
-        console.log("[WebRTC] VIEWER_READY received, but connection is already active/connecting — skipping re-init");
+      if (
+        pc &&
+        (pc.connectionState === "connected" ||
+          pc.connectionState === "connecting" ||
+          pc.iceConnectionState === "connected" ||
+          pc.iceConnectionState === "checking")
+      ) {
+        console.log(
+          "[WebRTC] VIEWER_READY received, but connection is already active/connecting — skipping re-init",
+        );
         return;
       }
       console.log("[WebRTC] VIEWER_READY received — initiating stream");
       initiateStream();
     };
 
-    const handleSdpAnswer = async (msg: { sdp: { type: RTCSdpType; sdp: string } }, id?: string) => {
+    const handleSdpAnswer = async (
+      msg: { sdp: { type: RTCSdpType; sdp: string } },
+      id?: string,
+    ) => {
       if (id && isDuplicateSignal(id, "SDP_ANSWER", msg)) return;
       const pc = peerRef.current;
       if (!pc || pc.signalingState === "stable") return;
@@ -630,7 +722,9 @@ function CameraScreen({
               params.encodings[0].scaleResolutionDownBy = 1;
               await sender.setParameters(params);
             }
-          } catch { /* best-effort */ }
+          } catch {
+            /* best-effort */
+          }
         }
       } catch (err) {
         console.warn("Failed to set remote description on host:", err);
@@ -662,8 +756,13 @@ function CameraScreen({
     const runSignalPoll = async () => {
       while (active && signalPolling) {
         try {
-          const res = await fetch(`/api/signal?channel=${encodeURIComponent(channelName)}&since=${lastSignalTs}`);
-          if (!res.ok || !active) { await new Promise((r) => setTimeout(r, 300)); continue; }
+          const res = await fetch(
+            `/api/signal?channel=${encodeURIComponent(channelName)}&since=${lastSignalTs}`,
+          );
+          if (!res.ok || !active) {
+            await new Promise((r) => setTimeout(r, 300));
+            continue;
+          }
           const json = await res.json();
           if (json.success && Array.isArray(json.signals)) {
             for (const item of json.signals) {
@@ -673,7 +772,9 @@ function CameraScreen({
               if (item.type === "ICE_VIEWER") handleIceViewer(item.data, item.id);
             }
           }
-        } catch { /* ignore transient errors */ }
+        } catch {
+          /* ignore transient errors */
+        }
         await new Promise((r) => setTimeout(r, 300));
       }
     };
@@ -700,7 +801,7 @@ function CameraScreen({
 
     // Create canvas ONCE and reuse across all frames
     const canvas = document.createElement("canvas");
-    canvas.width = 640;  // 640×480: sharp on tablets, ~25KB JPEG @ 0.72 quality
+    canvas.width = 640; // 640×480: sharp on tablets, ~25KB JPEG @ 0.72 quality
     canvas.height = 480;
     const ctx = canvas.getContext("2d", { alpha: false });
 
@@ -769,11 +870,15 @@ function CameraScreen({
 
         if (!stream) {
           if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
-            const isHttpInsecure = typeof window !== "undefined" && window.location.protocol === "http:" && window.location.hostname !== "localhost" && window.location.hostname !== "127.0.0.1";
+            const isHttpInsecure =
+              typeof window !== "undefined" &&
+              window.location.protocol === "http:" &&
+              window.location.hostname !== "localhost" &&
+              window.location.hostname !== "127.0.0.1";
             throw new Error(
               isHttpInsecure
                 ? "Camera access requires HTTPS or http://localhost (Browsers block camera access on non-localhost HTTP connections)."
-                : "Camera device or mediaDevices API is not supported on this browser."
+                : "Camera device or mediaDevices API is not supported on this browser.",
             );
           }
 
@@ -794,7 +899,10 @@ function CameraScreen({
               audio: false,
             });
           } catch (deviceErr) {
-            console.warn("Camera constraint acquisition failed, trying simple video constraint:", deviceErr);
+            console.warn(
+              "Camera constraint acquisition failed, trying simple video constraint:",
+              deviceErr,
+            );
             try {
               stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
             } catch (fallbackErr: any) {
@@ -818,7 +926,9 @@ function CameraScreen({
         const track = stream.getVideoTracks()[0];
         if (track) {
           try {
-            const caps = (typeof track.getCapabilities === "function" ? track.getCapabilities() : {}) as any;
+            const caps = (
+              typeof track.getCapabilities === "function" ? track.getCapabilities() : {}
+            ) as any;
             setCapabilities(caps);
             const advancedConstraints: any = {};
 
@@ -829,7 +939,10 @@ function CameraScreen({
               }
               if (settings.exposureTime && caps.exposureTime) {
                 const { min, max } = caps.exposureTime;
-                advancedConstraints.exposureTime = Math.max(min, Math.min(max, settings.exposureTime));
+                advancedConstraints.exposureTime = Math.max(
+                  min,
+                  Math.min(max, settings.exposureTime),
+                );
               }
               if (settings.iso && caps.iso) {
                 const { min, max } = caps.iso;
@@ -841,7 +954,10 @@ function CameraScreen({
               }
               if (settings.exposureCompensation !== undefined && caps.exposureCompensation) {
                 const { min, max } = caps.exposureCompensation;
-                advancedConstraints.exposureCompensation = Math.max(min, Math.min(max, settings.exposureCompensation));
+                advancedConstraints.exposureCompensation = Math.max(
+                  min,
+                  Math.min(max, settings.exposureCompensation),
+                );
               }
             }
 
@@ -852,7 +968,10 @@ function CameraScreen({
               }
               if (settings.colorTemperature && caps.colorTemperature) {
                 const { min, max } = caps.colorTemperature;
-                advancedConstraints.colorTemperature = Math.max(min, Math.min(max, settings.colorTemperature));
+                advancedConstraints.colorTemperature = Math.max(
+                  min,
+                  Math.min(max, settings.colorTemperature),
+                );
               }
             } else {
               if (caps.whiteBalanceMode?.includes("continuous")) {
@@ -916,11 +1035,14 @@ function CameraScreen({
         if (!cancelled) {
           let msg = e?.message || "Camera access denied or unavailable";
           if (e?.name === "NotReadableError" || e?.name === "TrackStartError") {
-            msg = "Camera is in use by another application (e.g. Zoom, Teams, Windows Camera App, or OBS). Please close other apps using the camera and try again.";
+            msg =
+              "Camera is in use by another application (e.g. Zoom, Teams, Windows Camera App, or OBS). Please close other apps using the camera and try again.";
           } else if (e?.name === "OverconstrainedError" || e?.name === "NotFoundError") {
-            msg = "Selected camera device not found. Please open Admin Settings (Shift+A) to choose an active camera.";
+            msg =
+              "Selected camera device not found. Please open Admin Settings (Shift+A) to choose an active camera.";
           } else if (e?.name === "NotAllowedError" || e?.name === "PermissionDeniedError") {
-            msg = "Camera permission was denied in your browser settings. Please click the camera icon in your browser address bar to allow access.";
+            msg =
+              "Camera permission was denied in your browser settings. Please click the camera icon in your browser address bar to allow access.";
           }
           setError(msg);
         }
@@ -945,10 +1067,17 @@ function CameraScreen({
         let n = from;
         setCount(n);
         const id = setInterval(() => {
-          if (cancelled) { clearInterval(id); resolve(); return; }
+          if (cancelled) {
+            clearInterval(id);
+            resolve();
+            return;
+          }
           n -= 1;
-          if (n <= 0) { clearInterval(id); setCount(null); resolve(); }
-          else setCount(n);
+          if (n <= 0) {
+            clearInterval(id);
+            setCount(null);
+            resolve();
+          } else setCount(n);
         }, 1000);
       });
 
@@ -994,26 +1123,38 @@ function CameraScreen({
       if (!cancelled) onDone(photosRef.current);
     })();
 
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [ready, settings.countdownTime, settings.photoGap, onDone]);
 
   return (
     <motion.div
-      initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
       className="absolute inset-0 flex flex-col"
     >
       <div className="flex items-center justify-between p-4">
-        <div className="text-sm tracking-widest text-muted-foreground">PHOTO {shotIdx + 1} / {settings.printLayout === "4x6" ? 4 : 3}</div>
-        <button onClick={onCancel} className="p-2 rounded-full bg-card/60 border border-border"><X /></button>
+        <div className="text-sm tracking-widest text-muted-foreground">
+          PHOTO {shotIdx + 1} / {settings.printLayout === "4x6" ? 4 : 3}
+        </div>
+        <button onClick={onCancel} className="p-2 rounded-full bg-card/60 border border-border">
+          <X />
+        </button>
       </div>
 
       <div className="flex-1 relative flex items-center justify-center px-4">
         <div className="relative w-full max-w-3xl aspect-[4/3] rounded-3xl overflow-hidden neon-border bg-black">
           <video
             ref={videoRef}
-            playsInline muted
+            playsInline
+            muted
             className="absolute inset-0 w-full h-full object-cover"
-            style={{ transform: `scaleX(-1) scale(${settings.photoZoom || 1.0})`, filter: cssFilter }}
+            style={{
+              transform: `scaleX(-1) scale(${settings.photoZoom || 1.0})`,
+              filter: cssFilter,
+            }}
           />
           {!ready && !error && (
             <div className="absolute inset-0 flex items-center justify-center text-sm font-bold tracking-wider text-accent uppercase">
@@ -1025,7 +1166,12 @@ function CameraScreen({
               <Camera className="w-12 h-12 text-destructive" />
               <div className="text-destructive font-bold">Camera unavailable</div>
               <div className="text-sm text-muted-foreground">{error}</div>
-              <button onClick={onCancel} className="mt-3 px-5 py-3 rounded-xl bg-primary text-primary-foreground font-bold">Back</button>
+              <button
+                onClick={onCancel}
+                className="mt-3 px-5 py-3 rounded-xl bg-primary text-primary-foreground font-bold"
+              >
+                Back
+              </button>
             </div>
           )}
           <AnimatePresence>
@@ -1038,7 +1184,9 @@ function CameraScreen({
                 transition={{ duration: 0.4 }}
                 className="absolute inset-0 flex items-center justify-center"
               >
-                <div className="text-[14rem] sm:text-[18rem] font-black neon-text leading-none">{count}</div>
+                <div className="text-[14rem] sm:text-[18rem] font-black neon-text leading-none">
+                  {count}
+                </div>
               </motion.div>
             )}
           </AnimatePresence>
@@ -1056,15 +1204,19 @@ function CameraScreen({
         </motion.div>
         <div className="mt-2 flex justify-center gap-2">
           {Array.from({ length: settings.printLayout === "4x6" ? 4 : 3 }).map((_, i) => (
-            <div key={i}
+            <div
+              key={i}
               className={`h-2 w-10 rounded-full transition ${
-                i < photosRef.current.length ? "bg-primary" : i === shotIdx ? "bg-accent" : "bg-secondary"
-              }`} />
+                i < photosRef.current.length
+                  ? "bg-primary"
+                  : i === shotIdx
+                    ? "bg-accent"
+                    : "bg-secondary"
+              }`}
+            />
           ))}
         </div>
       </div>
-
-
     </motion.div>
   );
 }
@@ -1077,7 +1229,9 @@ function Processing({ settings }: { settings: Settings }) {
 
   return (
     <motion.div
-      initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
       className="absolute inset-0 flex flex-col items-center justify-center gap-8 px-6 text-center"
     >
       <RobotFace size={220} />
@@ -1086,7 +1240,8 @@ function Processing({ settings }: { settings: Settings }) {
         <motion.div
           className="h-full"
           style={{ background: "linear-gradient(90deg, var(--neon), var(--neon-2))" }}
-          initial={{ width: "5%" }} animate={{ width: ["5%", "85%", "100%"] }}
+          initial={{ width: "5%" }}
+          animate={{ width: ["5%", "85%", "100%"] }}
           transition={{ duration: 1.6, times: [0, 0.8, 1] }}
         />
       </div>
@@ -1097,7 +1252,11 @@ function Processing({ settings }: { settings: Settings }) {
 
 /* -------------------- Preview -------------------- */
 function Preview({
-  strip, settings, onRetake, onHome, printTriggerRef,
+  strip,
+  settings,
+  onRetake,
+  onHome,
+  printTriggerRef,
 }: {
   strip: { id: string; dataUrl: string };
   settings: Settings;
@@ -1107,10 +1266,13 @@ function Preview({
 }) {
   const [qr, setQr] = useState<string | null>(null);
   const [showQR, setShowQR] = useState(false);
-  const [isPrinting, setIsPrinting] = useState(false);
+  const [printModalOpen, setPrintModalOpen] = useState(false);
 
   useEffect(() => {
-    speak("Looking great! If you want to print your photos, please click on the print button below.", settings.enableVoice !== false);
+    speak(
+      "Looking great! If you want to print your photos, please click on the print button below.",
+      settings.enableVoice !== false,
+    );
   }, [settings.enableVoice]);
 
   // 60-second inactivity watchdog on Preview: auto-returns to Welcome screen if guest leaves
@@ -1123,11 +1285,11 @@ function Preview({
   }, [onHome]);
 
   useEffect(() => {
-    printTriggerRef.current = handlePrint;
+    printTriggerRef.current = () => setPrintModalOpen(true);
     return () => {
       printTriggerRef.current = null;
     };
-  }, [strip, settings]);
+  }, [printTriggerRef]);
 
   const handleDownload = () => {
     const a = document.createElement("a");
@@ -1137,84 +1299,27 @@ function Preview({
     logDownload(strip.id);
   };
 
-  const handlePrint = async () => {
-    if (isPrinting) return;
-    setIsPrinting(true);
-    speak("Thank you! Printing your photo strip now.", settings.enableVoice !== false);
-
-    const printDataUrl = strip.dataUrl;
-
-    let printedLocally = false;
-
-    // 1. Try local print agent on port 3100 (for Vercel deployment direct printing to laptop)
-    try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 1500);
-      const agentRes = await fetch("http://localhost:3100/print", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          id: strip.id,
-          dataUrl: printDataUrl,
-          printerName: settings.printerName || "DS-RX1",
-        }),
-        signal: controller.signal,
-      });
-      clearTimeout(timeoutId);
-      if (agentRes.ok) {
-        const agentJson = await agentRes.json();
-        if (agentJson.success) {
-          console.log("[Laptop] Direct print spooled via Local Print Agent on port 3100!");
-          logPrint(strip.id);
-          printedLocally = true;
-        }
-      }
-    } catch {}
-
-    // 2. Fallback to Nitro server /api/print
-    if (!printedLocally) {
-      try {
-        const res = await fetch("/api/print", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            id: strip.id,
-            dataUrl: printDataUrl,
-            printerName: settings.printerName || "DS-RX1",
-          }),
-        });
-        const json = (await res.json()) as { success?: boolean; mode?: string; error?: string };
-        if (json && json.success) {
-          console.log("[Laptop] Direct silent native printer job sent to DS-RX1 / queued!");
-          logPrint(strip.id);
-        }
-      } catch (err) {
-        console.warn("[Laptop] Direct server print request failed:", err);
-      }
-    }
-
-    // 2. Return to home screen automatically after printing (no browser print preview dialog displayed!)
-    logPrint(strip.id);
-    setTimeout(() => {
-      onHome();
-    }, 3500);
-  };
-
-
   const handleQR = async () => {
     const url = `${window.location.origin}/photo/${strip.id}`;
-    const dataUrl = await QRCode.toDataURL(url, { width: 512, margin: 2, color: { dark: "#000000", light: "#ffffff" } });
+    const dataUrl = await QRCode.toDataURL(url, {
+      width: 512,
+      margin: 2,
+      color: { dark: "#000000", light: "#ffffff" },
+    });
     setQr(dataUrl);
     setShowQR(true);
   };
 
   return (
     <motion.div
-      initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
       className="absolute inset-0 flex flex-col lg:flex-row items-center justify-center gap-6 p-4 sm:p-8 overflow-y-auto"
     >
       <motion.div
-        initial={{ scale: 0.7, rotate: -4 }} animate={{ scale: 1, rotate: 0 }}
+        initial={{ scale: 0.7, rotate: -4 }}
+        animate={{ scale: 1, rotate: 0 }}
         transition={{ type: "spring", stiffness: 120, damping: 14 }}
         className="shrink-0"
       >
@@ -1230,7 +1335,7 @@ function Preview({
           <div className="text-3xl font-black neon-text">Looking Great!</div>
           <div className="text-muted-foreground text-sm">{settings.eventName}</div>
         </div>
-        
+
         <motion.div
           initial={{ opacity: 0, scale: 0.95 }}
           animate={{ opacity: 1, scale: 1 }}
@@ -1241,46 +1346,64 @@ function Preview({
               : "bg-primary/10 border-primary/20 text-primary"
           }`}
         >
-          📢 <strong>Hint:</strong> If you want to print your photos, please click on the <strong>Print Photo</strong> button below!
+          📢 <strong>Hint:</strong> If you want to print your photos, please click on the{" "}
+          <strong>Print Photo</strong> button below!
         </motion.div>
 
         <BigBtn onClick={onRetake} icon={<RefreshCw />} label="Retake Photos" tone="secondary" />
-        {settings.enablePrint && <BigBtn onClick={handlePrint} icon={<Printer />} label="Print Photo" tone="primary" />}
+        {settings.enablePrint && (
+          <BigBtn
+            onClick={() => setPrintModalOpen(true)}
+            icon={<Printer />}
+            label="Print Photo"
+            tone="primary"
+          />
+        )}
         <BigBtn onClick={handleDownload} icon={<Download />} label="Download" tone="secondary" />
-        {settings.enableQR && <BigBtn onClick={handleQR} icon={<QrCode />} label="Generate QR Code" tone="accent" />}
-        <button onClick={onHome} className="mt-2 text-muted-foreground hover:text-foreground py-2">← Back to start</button>
+        {settings.enableQR && (
+          <BigBtn onClick={handleQR} icon={<QrCode />} label="Generate QR Code" tone="accent" />
+        )}
+        <button onClick={onHome} className="mt-2 text-muted-foreground hover:text-foreground py-2">
+          ← Back to start
+        </button>
       </div>
 
+      <PrintModal
+        open={printModalOpen}
+        onClose={() => setPrintModalOpen(false)}
+        strip={strip}
+        settings={settings}
+        isKiosk={true}
+        onPrintComplete={() => {
+          logPrint(strip.id);
+        }}
+      />
+
       <AnimatePresence>
-        {isPrinting && (
-          <motion.div
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.9 }}
-            className="fixed inset-0 z-[99990] bg-black/85 backdrop-blur flex flex-col items-center justify-center p-6 text-center text-white"
-          >
-            <Printer className="w-16 h-16 text-primary animate-bounce mb-4" />
-            <h3 className="text-3xl font-black neon-text mb-2">Printing Photo Strip</h3>
-            <p className="text-muted-foreground text-base max-w-sm">
-              Printing photo strip to connected printer. Please wait...
-            </p>
-          </motion.div>
-        )}
         {showQR && qr && (
           <motion.div
-            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
             className="fixed inset-0 z-50 bg-black/80 backdrop-blur flex items-center justify-center p-6"
             onClick={() => setShowQR(false)}
           >
             <motion.div
-              initial={{ scale: 0.8 }} animate={{ scale: 1 }} exit={{ scale: 0.8 }}
+              initial={{ scale: 0.8 }}
+              animate={{ scale: 1 }}
+              exit={{ scale: 0.8 }}
               onClick={(e) => e.stopPropagation()}
               className="bg-card neon-border rounded-2xl p-8 max-w-sm w-full text-center"
             >
               <h3 className="text-3xl font-black neon-text mb-2">Scan To Download</h3>
-              <p className="text-muted-foreground text-sm mb-4">Open camera on your phone and scan</p>
+              <p className="text-muted-foreground text-sm mb-4">
+                Open camera on your phone and scan
+              </p>
               <img src={qr} alt="QR" className="w-full rounded-xl bg-white p-3" />
-              <button onClick={() => setShowQR(false)} className="mt-5 w-full bg-primary text-primary-foreground rounded-xl py-3 font-bold">
+              <button
+                onClick={() => setShowQR(false)}
+                className="mt-5 w-full bg-primary text-primary-foreground rounded-xl py-3 font-bold"
+              >
                 Done
               </button>
             </motion.div>
@@ -1292,8 +1415,16 @@ function Preview({
 }
 
 function BigBtn({
-  onClick, icon, label, tone,
-}: { onClick: () => void; icon: React.ReactNode; label: string; tone: "primary" | "secondary" | "accent" }) {
+  onClick,
+  icon,
+  label,
+  tone,
+}: {
+  onClick: () => void;
+  icon: React.ReactNode;
+  label: string;
+  tone: "primary" | "secondary" | "accent";
+}) {
   const styles =
     tone === "primary"
       ? "bg-primary text-primary-foreground"
@@ -1306,7 +1437,8 @@ function BigBtn({
       onClick={onClick}
       className={`flex items-center justify-center gap-3 rounded-2xl py-5 px-5 text-xl font-bold shadow-lg ${styles}`}
     >
-      {icon}<span>{label}</span>
+      {icon}
+      <span>{label}</span>
     </motion.button>
   );
 }

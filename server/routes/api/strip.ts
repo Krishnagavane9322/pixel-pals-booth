@@ -102,7 +102,7 @@ export default defineEventHandler(async (event) => {
     try {
       const tmpPath = path.join(os.tmpdir(), "photos", `${id}.jpg`);
       const pubPath = path.join(process.cwd(), "public", "photos", `${id}.jpg`);
-      const targetPath = fs.existsSync(pubPath) ? pubPath : (fs.existsSync(tmpPath) ? tmpPath : null);
+      const targetPath = fs.existsSync(pubPath) ? pubPath : fs.existsSync(tmpPath) ? tmpPath : null;
       if (targetPath) {
         const buffer = await fs.promises.readFile(targetPath);
         return { success: true, dataUrl: `data:image/jpeg;base64,${buffer.toString("base64")}` };

@@ -80,7 +80,12 @@ export function useSSEChannel(channel: string): {
   const seenIdsRef = useRef<Set<string>>(new Set());
   const lastTimestampRef = useRef<number>(Date.now() - 10000);
 
-  const processEventRecord = (rec: { id?: string; event: string; data: unknown; timestamp?: number }) => {
+  const processEventRecord = (rec: {
+    id?: string;
+    event: string;
+    data: unknown;
+    timestamp?: number;
+  }) => {
     if (rec.id) {
       if (seenIdsRef.current.has(rec.id)) return;
       seenIdsRef.current.add(rec.id);
@@ -197,7 +202,9 @@ export function useSSEChannel(channel: string): {
               // Host ID taken — fall back to random peer ID
               const fallbackPeer = new Peer();
               if (peerInstance && peerInstance !== fallbackPeer) {
-                try { peerInstance.destroy(); } catch (e) {}
+                try {
+                  peerInstance.destroy();
+                } catch (e) {}
               }
               peerInstance = fallbackPeer;
               fallbackPeer.on("connection", (conn: any) => {
@@ -237,7 +244,12 @@ export function useSSEChannel(channel: string): {
 
     es.onmessage = (e: MessageEvent<string>) => {
       try {
-        const msg = JSON.parse(e.data) as { event: string; data: unknown; id?: string; timestamp?: number };
+        const msg = JSON.parse(e.data) as {
+          event: string;
+          data: unknown;
+          id?: string;
+          timestamp?: number;
+        };
         if (active) {
           setConnected(true);
           processEventRecord(msg);
@@ -255,10 +267,17 @@ export function useSSEChannel(channel: string): {
         setTimeout(() => {
           if (!active) return;
           const newEs = new EventSource(url);
-          newEs.onopen = () => { if (active) setConnected(true); };
+          newEs.onopen = () => {
+            if (active) setConnected(true);
+          };
           newEs.onmessage = (e: MessageEvent<string>) => {
             try {
-              const msg = JSON.parse(e.data) as { event: string; data: unknown; id?: string; timestamp?: number };
+              const msg = JSON.parse(e.data) as {
+                event: string;
+                data: unknown;
+                id?: string;
+                timestamp?: number;
+              };
               if (active) processEventRecord(msg);
             } catch {}
           };
@@ -300,7 +319,9 @@ export function useSSEChannel(channel: string): {
       activeP2pConns.clear();
       p2pConnectedRef.current = false;
       if (peerInstance) {
-        try { peerInstance.destroy(); } catch (e) {}
+        try {
+          peerInstance.destroy();
+        } catch (e) {}
       }
     };
   }, [channel]);

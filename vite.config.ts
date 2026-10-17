@@ -7,7 +7,7 @@ import { nitro } from "nitro/vite";
 
 export default defineConfig({
   server: {
-    host: true,  // Expose on local network so tablet can reach laptop's server
+    host: true, // Expose on local network so tablet can reach laptop's server
     port: 3000,
     hmr: {
       overlay: false, // Suppress intrusive overlay for transient TCP ECONNRESET socket disconnects
@@ -38,6 +38,14 @@ export default defineConfig({
       {
         route: "/api/strip",
         handler: "./server/routes/api/strip.ts",
+      },
+      {
+        route: "/api/print",
+        handler: "./server/routes/api/print.ts",
+      },
+      {
+        route: "/api/print-queue",
+        handler: "./server/routes/api/print-queue.ts",
       },
     ],
   },
