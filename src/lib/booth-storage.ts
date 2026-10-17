@@ -19,12 +19,48 @@ export type Settings = {
   theme: "cyberpunk" | "floral" | "garba-midnight" | "garba-crimson";
   printLayout: "2x6" | "4x6";
   enableVoice: boolean;
+
+  // Event Name Typography & Placement
   eventNameFontFamily: string;
   eventNameFontSize: number;
+  eventNameFontWeight: string;
   eventNameColor: string;
+  eventNamePlacementY: number; // Vertical offset (-150 to +150px)
+  eventNamePlacementX: number; // Horizontal offset (-150 to +150px)
+  eventNameLetterSpacing: number; // Letter spacing (-2 to 14px)
+  eventNameAlign: "center" | "left" | "right";
+
+  // Watermark Typography & Placement
   watermarkFontFamily: string;
   watermarkFontSize: number;
+  watermarkFontWeight: string;
   watermarkColor: string;
+  watermarkPlacementY: number; // Vertical offset (-150 to +150px)
+  watermarkPlacementX: number; // Horizontal offset (-150 to +150px)
+  watermarkLetterSpacing: number; // Letter spacing (-2 to 14px)
+  watermarkAlign: "center" | "left" | "right";
+
+  // Date Typography & Placement
+  showDate: boolean;
+  dateFontSize: number;
+  dateColor: string;
+  datePlacementY: number; // Vertical offset (-100 to +100px)
+  datePlacementX: number; // Horizontal offset (-100 to +100px)
+
+  // Logo Placement & Size
+  logoSize: number; // Height in px (20 to 120, 0 = auto)
+  logoPlacementY: number; // Vertical offset (-100 to +100px)
+  logoPlacementX: number; // Horizontal offset (-100 to +100px)
+
+  // Photo Strip Layout & Dimensions
+  photoScale: number; // Scale factor (0.8 to 1.5, default 1.0)
+  photoMarginTop: number; // Top padding of photos area (-80 to +100px)
+  photoMarginSide: number; // Side margins (-50 to +50px)
+  photoGapY: number; // Vertical gap between photos (-20 to 60px)
+  photoBorderRadius: number; // Corner radius (0 to 40px)
+  photoBorderWidth: number; // Border width (0 to 16px)
+  photoBorderColor: string; // Custom border color
+  footerHeight: number; // Footer area height (100 to 350px, 0 = auto)
 };
 
 const DEFAULTS: Settings = {
@@ -48,12 +84,43 @@ const DEFAULTS: Settings = {
   theme: "cyberpunk",
   printLayout: "2x6",
   enableVoice: true,
+
   eventNameFontFamily: "",
   eventNameFontSize: 0,
+  eventNameFontWeight: "",
   eventNameColor: "",
+  eventNamePlacementY: 0,
+  eventNamePlacementX: 0,
+  eventNameLetterSpacing: 0,
+  eventNameAlign: "center",
+
   watermarkFontFamily: "",
   watermarkFontSize: 0,
+  watermarkFontWeight: "",
   watermarkColor: "",
+  watermarkPlacementY: 0,
+  watermarkPlacementX: 0,
+  watermarkLetterSpacing: 0,
+  watermarkAlign: "center",
+
+  showDate: true,
+  dateFontSize: 0,
+  dateColor: "",
+  datePlacementY: 0,
+  datePlacementX: 0,
+
+  logoSize: 0,
+  logoPlacementY: 0,
+  logoPlacementX: 0,
+
+  photoScale: 1.0,
+  photoMarginTop: 0,
+  photoMarginSide: 0,
+  photoGapY: 0,
+  photoBorderRadius: 0,
+  photoBorderWidth: 0,
+  photoBorderColor: "",
+  footerHeight: 0,
 };
 
 const SETTINGS_KEY = "rovi.settings";
