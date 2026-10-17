@@ -201,11 +201,17 @@ export function AdminPanel({
               <Field label="Photo Strip Theme">
                 <select
                   value={s.theme || "cyberpunk"}
-                  onChange={(e) => update({ theme: e.target.value as "cyberpunk" | "floral" })}
+                  onChange={(e) =>
+                    update({
+                      theme: e.target.value as "cyberpunk" | "floral" | "garba-midnight" | "garba-crimson",
+                    })
+                  }
                   className="w-full bg-input border border-border rounded-lg px-3 py-2 text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
                 >
                   <option value="cyberpunk">⚡ Cyberpunk Neon (Dark)</option>
                   <option value="floral">🌸 Pink Floral Birthday (Light)</option>
+                  <option value="garba-midnight">✨ Royal Midnight Garba (Navy & Gold)</option>
+                  <option value="garba-crimson">🔥 Royal Crimson Garba (Red & Gold)</option>
                 </select>
               </Field>
               <Field label="Print Layout">

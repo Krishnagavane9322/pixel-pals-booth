@@ -16,7 +16,7 @@ export type Settings = {
   colorTemperature: number;
   tint: number;
   photoZoom: number;
-  theme: "cyberpunk" | "floral";
+  theme: "cyberpunk" | "floral" | "garba-midnight" | "garba-crimson";
   printLayout: "2x6" | "4x6";
   enableVoice: boolean;
   eventNameFontFamily: string;

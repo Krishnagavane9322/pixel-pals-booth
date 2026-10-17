@@ -9,52 +9,80 @@ export const STRIP_H = 1800; // 6" @ 300dpi
 function getTypography(
   type: "eventName" | "watermark",
   settings: Settings,
-  theme: "cyberpunk" | "floral",
+  theme: Settings["theme"],
   layout: "2x6" | "4x6",
 ) {
   const isFloral = theme === "floral";
+  const isGarba = theme === "garba-midnight" || theme === "garba-crimson";
   const is4x6 = layout === "4x6";
 
   if (type === "eventName") {
     let color = settings.eventNameColor;
     if (!color) {
-      color = isFloral ? "#e0497f" : "#ffffff";
+      if (isGarba) {
+        color = "#ffd700"; // Rich royal gold
+      } else if (isFloral) {
+        color = "#e0497f";
+      } else {
+        color = "#ffffff";
+      }
     }
 
     let family = settings.eventNameFontFamily;
     if (!family) {
-      family = isFloral
-        ? "'Brush Script MT', 'Great Vibes', cursive, sans-serif"
-        : "ui-sans-serif, system-ui, sans-serif";
+      if (isGarba) {
+        family = "'Cinzel', 'Playfair Display', Georgia, serif";
+      } else if (isFloral) {
+        family =
+          "'Brush Script MT', 'Great Vibes', cursive, sans-serif";
+      } else {
+        family = "ui-sans-serif, system-ui, sans-serif";
+      }
     }
 
     let size = settings.eventNameFontSize;
     if (!size) {
-      if (isFloral) {
+      if (isGarba) {
+        size = is4x6 ? 30 : 28;
+      } else if (isFloral) {
         size = 44;
       } else {
         size = is4x6 ? 24 : 26;
       }
     }
 
-    const fontStyle = isFloral ? `bold ${size}px` : `600 ${size}px`;
+    const fontStyle = (isFloral || isGarba) ? `bold ${size}px` : `600 ${size}px`;
     const font = `${fontStyle} ${family}`;
 
     return { color, font };
   } else {
     let color = settings.watermarkColor;
     if (!color) {
-      color = isFloral ? "#8d5940" : "#7ee7ff";
+      if (isGarba) {
+        color = "#ffe57f"; // Warm shimmering gold
+      } else if (isFloral) {
+        color = "#8d5940";
+      } else {
+        color = "#7ee7ff";
+      }
     }
 
     let family = settings.watermarkFontFamily;
     if (!family) {
-      family = isFloral ? "Georgia, serif" : "ui-sans-serif, system-ui, sans-serif";
+      if (isGarba) {
+        family = "'Cinzel', 'Playfair Display', Georgia, serif";
+      } else if (isFloral) {
+        family = "Georgia, serif";
+      } else {
+        family = "ui-sans-serif, system-ui, sans-serif";
+      }
     }
 
     let size = settings.watermarkFontSize;
     if (!size) {
-      if (isFloral) {
+      if (isGarba) {
+        size = is4x6 ? 22 : 20;
+      } else if (isFloral) {
         size = 24;
       } else {
         size = is4x6 ? 32 : 36;
@@ -80,22 +108,43 @@ export async function buildStrip(photos: string[], settings: Settings): Promise<
   const w = canvas.width;
   const h = canvas.height;
 
+  const currentTheme = settings.theme || "cyberpunk";
+  const isFloral = currentTheme === "floral";
+  const isGarbaMidnight = currentTheme === "garba-midnight";
+  const isGarbaCrimson = currentTheme === "garba-crimson";
+  const isGarba = isGarbaMidnight || isGarbaCrimson;
+
   const eventNameStyle = getTypography(
     "eventName",
     settings,
-    settings.theme || "cyberpunk",
+    currentTheme,
     settings.printLayout || "2x6",
   );
   const watermarkStyle = getTypography(
     "watermark",
     settings,
-    settings.theme || "cyberpunk",
+    currentTheme,
     settings.printLayout || "2x6",
   );
 
-  // 1. Load background if floral theme, and all photos
-  const isFloral = settings.theme === "floral";
-  const bgPromise = isFloral ? loadImg("/floral-bg.png") : Promise.resolve(null);
+  // 1. Load theme background / overlay image and all photos
+  let bgPromise: Promise<HTMLImageElement | null> = Promise.resolve(null);
+  if (isFloral) {
+    bgPromise = loadImg("/floral-bg.png");
+  } else if (isGarba) {
+    if (is4x6) {
+      const bgUrl = isGarbaCrimson
+        ? "/themes/garba-crimson-4x6.jpg"
+        : "/themes/garba-midnight-4x6.jpg";
+      bgPromise = loadImg(bgUrl);
+    } else {
+      const overlayUrl = isGarbaCrimson
+        ? "/themes/garba-crimson-2x6.png"
+        : "/themes/garba-midnight-2x6.png";
+      bgPromise = loadImg(overlayUrl);
+    }
+  }
+
   const loadedImgs = await Promise.all(photos.map(loadImg));
   const bgImg = await bgPromise;
   const firstValid = loadedImgs.find((img): img is HTMLImageElement => img !== null);
@@ -104,20 +153,34 @@ export async function buildStrip(photos: string[], settings: Settings): Promise<
   // 2. Draw background
   if (isFloral && bgImg) {
     if (is4x6) {
-      // Draw a soft background gradient first
       const grad = ctx.createLinearGradient(0, 0, w, h);
       grad.addColorStop(0, "#fffcfb");
       grad.addColorStop(1, "#fdecee");
       ctx.fillStyle = grad;
       ctx.fillRect(0, 0, w, h);
 
-      // Overlay the floral background image with low opacity
       ctx.save();
       ctx.globalAlpha = 0.25;
       ctx.drawImage(bgImg, 0, 0, w, h);
       ctx.restore();
     } else {
       ctx.drawImage(bgImg, 0, 0, STRIP_W, STRIP_H);
+    }
+  } else if (isGarba) {
+    if (is4x6) {
+      if (bgImg) {
+        ctx.drawImage(bgImg, 0, 0, w, h);
+      } else {
+        const grad = ctx.createLinearGradient(0, 0, w, h);
+        grad.addColorStop(0, isGarbaCrimson ? "#450414" : "#010937");
+        grad.addColorStop(1, isGarbaCrimson ? "#1a0107" : "#020417");
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, w, h);
+      }
+    } else {
+      // Solid rich base color underneath the 2x6 frame cutouts
+      ctx.fillStyle = isGarbaCrimson ? "#450414" : "#010937";
+      ctx.fillRect(0, 0, STRIP_W, STRIP_H);
     }
   } else {
     // Cyberpunk gradient background
@@ -130,10 +193,6 @@ export async function buildStrip(photos: string[], settings: Settings): Promise<
 
   if (is4x6) {
     // --- 4x6 Layout ---
-    // 2x2 grid of 4 photos
-    // Columns: x = 40 (col 0), x = 920 (col 1), width = 840
-    // Rows: y = 40 (row 0), y = 560 (row 1), height = 480
-    // Footer: y = 1040 to 1200
     const colW = 840;
     const rowH = 480;
     const startX = 40;
@@ -150,7 +209,24 @@ export async function buildStrip(photos: string[], settings: Settings): Promise<
       const img = imgs[i] || imgs[0]; // fallback if less than 4 photos
       if (!img) continue;
 
-      if (isFloral) {
+      if (isGarba) {
+        // Draw photo
+        drawCover(ctx, img, dx, dy, colW, rowH, settings.photoZoom);
+
+        // Double Royal Gold metallic border with shadow
+        ctx.save();
+        ctx.shadowColor = "rgba(0,0,0,0.65)";
+        ctx.shadowBlur = 12;
+        ctx.strokeStyle = "#d4af37"; // Rich antique gold
+        ctx.lineWidth = 7;
+        ctx.strokeRect(dx, dy, colW, rowH);
+
+        // Inner golden metallic bevel highlight
+        ctx.strokeStyle = "#fff275";
+        ctx.lineWidth = 2;
+        ctx.strokeRect(dx + 2, dy + 2, colW - 4, rowH - 4);
+        ctx.restore();
+      } else if (isFloral) {
         // Draw photo
         drawCover(ctx, img, dx, dy, colW, rowH, settings.photoZoom);
 
@@ -182,7 +258,68 @@ export async function buildStrip(photos: string[], settings: Settings): Promise<
     const footerY = 1040;
     const footerH = 160;
 
-    if (isFloral) {
+    if (isGarba) {
+      // Ornate Royal Footer banner
+      ctx.save();
+      const footerGrad = ctx.createLinearGradient(0, footerY, 0, footerY + footerH);
+      footerGrad.addColorStop(
+        0,
+        isGarbaCrimson ? "rgba(55, 3, 13, 0.96)" : "rgba(1, 9, 55, 0.96)",
+      );
+      footerGrad.addColorStop(
+        1,
+        isGarbaCrimson ? "rgba(25, 1, 6, 0.98)" : "rgba(1, 4, 25, 0.98)",
+      );
+      ctx.fillStyle = footerGrad;
+      ctx.fillRect(0, footerY, w, footerH);
+
+      // Gold filigree top trim
+      const goldTrim = ctx.createLinearGradient(0, 0, w, 0);
+      goldTrim.addColorStop(0, "#d4af37");
+      goldTrim.addColorStop(0.5, "#fff275");
+      goldTrim.addColorStop(1, "#d4af37");
+      ctx.fillStyle = goldTrim;
+      ctx.fillRect(0, footerY, w, 5);
+
+      // Draw event logo on the left
+      if (settings.logoDataUrl) {
+        try {
+          const logo = await loadImg(settings.logoDataUrl);
+          if (logo) {
+            const lh = 80;
+            const lw = (logo.width / logo.height) * lh;
+            ctx.drawImage(logo, 200 - lw / 2, footerY + (footerH - lh) / 2 + 2, lw, lh);
+          }
+        } catch {}
+      }
+
+      // Draw date on the right
+      ctx.fillStyle = "#ffd700";
+      ctx.font = "600 18px 'Cinzel', Georgia, serif";
+      ctx.textAlign = "center";
+      ctx.fillText(
+        new Date().toLocaleString(undefined, { dateStyle: "medium" }),
+        1600,
+        footerY + 90,
+      );
+
+      // Centered text with shadow
+      ctx.shadowColor = "rgba(0,0,0,0.85)";
+      ctx.shadowBlur = 8;
+      ctx.textAlign = "center";
+      const cx = w / 2;
+
+      // Watermark text
+      ctx.fillStyle = watermarkStyle.color;
+      ctx.font = watermarkStyle.font;
+      ctx.fillText(settings.watermark || "Navratri Dandiya Raas", cx, footerY + 55);
+
+      // Event name
+      ctx.fillStyle = eventNameStyle.color;
+      ctx.font = eventNameStyle.font;
+      ctx.fillText(settings.eventName, cx, footerY + 115);
+      ctx.restore();
+    } else if (isFloral) {
       // Draw event logo if uploaded on the left
       if (settings.logoDataUrl) {
         try {
@@ -261,116 +398,197 @@ export async function buildStrip(photos: string[], settings: Settings): Promise<
       ctx.fillText(settings.eventName, cx, footerY + 110);
     }
   } else {
-    // --- Original 2x6 Layout ---
-    const footerH = 200;
-    const photosAreaH = STRIP_H - footerH;
-    const photoH = Math.floor(photosAreaH / 3);
+    // --- 2x6 Strip Layout ---
+    if (isGarba) {
+      // 1. Draw 3 photos behind the golden frame cutouts
+      const garbaFrames = [
+        { x: 81, y: 236, w: 437, h: 344 },
+        { x: 81, y: 636, w: 437, h: 345 },
+        { x: 81, y: 1036, w: 437, h: 344 },
+      ];
 
-    for (let i = 0; i < 3; i++) {
-      const y = i * photoH;
-
-      if (isFloral) {
-        // Elegant pink border layout for floral theme
-        const paddingX = 24;
-        const paddingY = 16;
-        const dx = paddingX;
-        const dy = y + paddingY;
-        const dw = STRIP_W - paddingX * 2;
-        const dh = photoH - paddingY * 2;
-
-        // Draw cover-cropped photo with zoom
-        drawCover(ctx, imgs[i], dx, dy, dw, dh, settings.photoZoom);
-
-        // Soft pink outer frame border
-        ctx.strokeStyle = "#ff9ec3";
-        ctx.lineWidth = 6;
-        ctx.strokeRect(dx, dy, dw, dh);
-      } else {
-        // Full bleed for cyberpunk
-        drawCover(ctx, imgs[i], 0, y, STRIP_W, photoH, settings.photoZoom);
-
-        // Separator line between photos
-        if (i < 2) {
-          ctx.fillStyle = "rgba(0,0,0,0.7)";
-          ctx.fillRect(0, y + photoH - 2, STRIP_W, 4);
+      for (let i = 0; i < 3; i++) {
+        const frame = garbaFrames[i];
+        const img = imgs[i];
+        if (img) {
+          // Tuck photo 2px behind golden frame edges to ensure flawless coverage
+          drawCover(
+            ctx,
+            img,
+            frame.x - 2,
+            frame.y - 2,
+            frame.w + 4,
+            frame.h + 4,
+            settings.photoZoom,
+          );
         }
       }
-    }
 
-    // Draw Footer
-    const footerY = photosAreaH;
+      // 2. Draw the transparent decorative overlay (frames, dancers, mandalas, garlands)
+      if (bgImg) {
+        ctx.drawImage(bgImg, 0, 0, STRIP_W, STRIP_H);
+      }
 
-    if (isFloral) {
-      // Floral text content (bunny decoration is already in the background template)
+      // 3. Dynamic branding inside the royal footer arch
+      ctx.save();
       ctx.textAlign = "center";
-      const cx = STRIP_W * 0.64; // center of text block on the right half, avoiding the bunny on the left
+      const cx = 300; // Exact center of strip and arch
 
-      // Draw event logo if uploaded (above the text)
       if (settings.logoDataUrl) {
         try {
           const logo = await loadImg(settings.logoDataUrl);
-          if (!logo) throw new Error("logo null");
-          const lh = 50;
-          const lw = (logo.width / logo.height) * lh;
-          ctx.drawImage(logo, cx - lw / 2, footerY + 12, lw, lh);
+          if (logo) {
+            const lh = 45;
+            const lw = (logo.width / logo.height) * lh;
+            ctx.drawImage(logo, cx - lw / 2, 1515, lw, lh);
+          }
         } catch {}
       }
 
-      // Watermark text
-      ctx.fillStyle = watermarkStyle.color;
-      ctx.font = watermarkStyle.font;
-      ctx.fillText(settings.watermark || "Some Bunny Is Turning One", cx, footerY + 70);
+      // Crisp gold text shadow for maximum royal contrast
+      ctx.shadowColor = "rgba(0, 0, 0, 0.9)";
+      ctx.shadowBlur = 8;
+      ctx.shadowOffsetX = 1;
+      ctx.shadowOffsetY = 2;
 
-      // Event name
+      // Event Name
       ctx.fillStyle = eventNameStyle.color;
       ctx.font = eventNameStyle.font;
-      ctx.fillText(settings.eventName, cx, footerY + 125);
+      ctx.fillText(settings.eventName, cx, settings.logoDataUrl ? 1585 : 1565);
 
-      // Date
-      ctx.fillStyle = "#8a756a"; // soft beige brown print color
-      ctx.font = "500 16px Georgia, serif";
+      // Watermark / Event subtitle
+      ctx.fillStyle = watermarkStyle.color;
+      ctx.font = watermarkStyle.font;
+      ctx.fillText(
+        settings.watermark || "Navratri Dandiya Raas",
+        cx,
+        settings.logoDataUrl ? 1622 : 1605,
+      );
+
+      // Date in antique gold serif
+      ctx.fillStyle = "#d4af37";
+      ctx.font = "600 16px 'Cinzel', Georgia, serif";
       ctx.fillText(
         new Date().toLocaleString(undefined, { dateStyle: "medium" }),
         cx,
-        footerY + 165,
+        settings.logoDataUrl ? 1655 : 1642,
       );
+      ctx.restore();
     } else {
-      // Cyberpunk footer
-      ctx.fillStyle = "rgba(11,16,32,0.97)";
-      ctx.fillRect(0, footerY, STRIP_W, footerH);
+      const footerH = 200;
+      const photosAreaH = STRIP_H - footerH;
+      const photoH = Math.floor(photosAreaH / 3);
 
-      // Neon gradient border at top of footer
-      const footerGrad = ctx.createLinearGradient(0, 0, STRIP_W, 0);
-      footerGrad.addColorStop(0, "#00f5ff");
-      footerGrad.addColorStop(1, "#b44dff");
-      ctx.fillStyle = footerGrad;
-      ctx.fillRect(0, footerY, STRIP_W, 4);
+      for (let i = 0; i < 3; i++) {
+        const y = i * photoH;
 
-      // Logo (centered in strip)
-      if (settings.logoDataUrl) {
-        try {
-          const logo = await loadImg(settings.logoDataUrl);
-          if (!logo) throw new Error("logo null");
-          const lh = 70;
-          const lw = (logo.width / logo.height) * lh;
-          ctx.drawImage(logo, (STRIP_W - lw) / 2, footerY + 12, lw, lh);
-        } catch {}
+        if (isFloral) {
+          // Elegant pink border layout for floral theme
+          const paddingX = 24;
+          const paddingY = 16;
+          const dx = paddingX;
+          const dy = y + paddingY;
+          const dw = STRIP_W - paddingX * 2;
+          const dh = photoH - paddingY * 2;
+
+          // Draw cover-cropped photo with zoom
+          drawCover(ctx, imgs[i], dx, dy, dw, dh, settings.photoZoom);
+
+          // Soft pink outer frame border
+          ctx.strokeStyle = "#ff9ec3";
+          ctx.lineWidth = 6;
+          ctx.strokeRect(dx, dy, dw, dh);
+        } else {
+          // Full bleed for cyberpunk
+          drawCover(ctx, imgs[i], 0, y, STRIP_W, photoH, settings.photoZoom);
+
+          // Separator line between photos
+          if (i < 2) {
+            ctx.fillStyle = "rgba(0,0,0,0.7)";
+            ctx.fillRect(0, y + photoH - 2, STRIP_W, 4);
+          }
+        }
       }
 
-      ctx.textAlign = "center";
-      const cx = STRIP_W / 2; // center of strip
+      // Draw Footer
+      const footerY = photosAreaH;
 
-      ctx.fillStyle = watermarkStyle.color;
-      ctx.font = watermarkStyle.font;
-      ctx.fillText(settings.watermark || "ROVI AI Photo Booth", cx, footerY + footerH - 76);
+      if (isFloral) {
+        // Floral text content (bunny decoration is already in the background template)
+        ctx.textAlign = "center";
+        const cx = STRIP_W * 0.64; // center of text block on the right half, avoiding the bunny on the left
 
-      ctx.fillStyle = eventNameStyle.color;
-      ctx.font = eventNameStyle.font;
-      ctx.fillText(settings.eventName, cx, footerY + footerH - 46);
+        // Draw event logo if uploaded (above the text)
+        if (settings.logoDataUrl) {
+          try {
+            const logo = await loadImg(settings.logoDataUrl);
+            if (!logo) throw new Error("logo null");
+            const lh = 50;
+            const lw = (logo.width / logo.height) * lh;
+            ctx.drawImage(logo, cx - lw / 2, footerY + 12, lw, lh);
+          } catch {}
+        }
 
-      ctx.fillStyle = "#c9b8ff";
-      ctx.font = "20px ui-sans-serif, system-ui, sans-serif";
-      ctx.fillText(new Date().toLocaleString(), cx, footerY + footerH - 18);
+        // Watermark text
+        ctx.fillStyle = watermarkStyle.color;
+        ctx.font = watermarkStyle.font;
+        ctx.fillText(settings.watermark || "Some Bunny Is Turning One", cx, footerY + 70);
+
+        // Event name
+        ctx.fillStyle = eventNameStyle.color;
+        ctx.font = eventNameStyle.font;
+        ctx.fillText(settings.eventName, cx, footerY + 125);
+
+        // Date
+        ctx.fillStyle = "#8a756a"; // soft beige brown print color
+        ctx.font = "500 16px Georgia, serif";
+        ctx.fillText(
+          new Date().toLocaleString(undefined, { dateStyle: "medium" }),
+          cx,
+          footerY + 165,
+        );
+      } else {
+        // Cyberpunk footer
+        ctx.fillStyle = "rgba(11,16,32,0.97)";
+        ctx.fillRect(0, footerY, STRIP_W, footerH);
+
+        // Neon gradient border at top of footer
+        const footerGrad = ctx.createLinearGradient(0, 0, STRIP_W, 0);
+        footerGrad.addColorStop(0, "#00f5ff");
+        footerGrad.addColorStop(1, "#b44dff");
+        ctx.fillStyle = footerGrad;
+        ctx.fillRect(0, footerY, STRIP_W, 4);
+
+        // Logo (centered in strip)
+        if (settings.logoDataUrl) {
+          try {
+            const logo = await loadImg(settings.logoDataUrl);
+            if (!logo) throw new Error("logo null");
+            const lh = 70;
+            const lw = (logo.width / logo.height) * lh;
+            ctx.drawImage(logo, (STRIP_W - lw) / 2, footerY + 12, lw, lh);
+          } catch {}
+        }
+
+        ctx.textAlign = "center";
+        const cx = STRIP_W / 2; // center of strip
+
+        ctx.fillStyle = watermarkStyle.color;
+        ctx.font = watermarkStyle.font;
+        ctx.fillText(
+          settings.watermark || "ROVI AI Photo Booth",
+          cx,
+          footerY + footerH - 76,
+        );
+
+        ctx.fillStyle = eventNameStyle.color;
+        ctx.font = eventNameStyle.font;
+        ctx.fillText(settings.eventName, cx, footerY + footerH - 46);
+
+        ctx.fillStyle = "#c9b8ff";
+        ctx.font = "20px ui-sans-serif, system-ui, sans-serif";
+        ctx.fillText(new Date().toLocaleString(), cx, footerY + footerH - 18);
+      }
     }
   }
 
